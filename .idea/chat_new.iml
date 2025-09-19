@@ -137,6 +137,9 @@
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/psr/http-server-handler" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/psr/http-server-middleware" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/symfony/psr-http-message-bridge" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/doctrine/sql-formatter" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/laravel/pulse" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/livewire/livewire" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
