@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_DB: chat_api
       POSTGRES_USER: purgato
-      POSTGRES_PASSWORD: 'Purgato$$123**'
+      POSTGRES_PASSWORD: 'Purgato$123**'
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
