@@ -122,24 +122,14 @@
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/vlucas/phpdotenv" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/voku/portable-ascii" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/webmozart/assert" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/defuse/php-encryption" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/firebase/php-jwt" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/laravel/passport" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/laravel/sanctum" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/lcobucci/clock" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/lcobucci/jwt" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/league/event" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/league/oauth2-server" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/paragonie/constant_time_encoding" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/paragonie/random_compat" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/php-http/discovery" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/phpseclib/phpseclib" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/psr/http-server-handler" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/psr/http-server-middleware" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/symfony/psr-http-message-bridge" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/doctrine/sql-formatter" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/laravel/pulse" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/livewire/livewire" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/paragonie/sodium_compat" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/pusher/pusher-php-server" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/laravel/horizon" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/predis/predis" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
