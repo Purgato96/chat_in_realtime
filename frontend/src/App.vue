@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import Welcome from "@/pages/Welcome.vue";
 </script>
 
 <template>
-  <h1 class="bg-purple-500 text-white text-3xl text-center">Chegamos</h1>
+  <Welcome />
 </template>
 
 <style scoped></style>

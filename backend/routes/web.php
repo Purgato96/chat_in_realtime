@@ -8,11 +8,7 @@ use Illuminate\Support\Facades\Route;
 
 // Página inicial básica (opcional)
 Route::get('/', function () {
-    return response()->json([
-        'message' => 'Chat API Backend',
-        'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
-        'api_docs' => '/api/v1/status'
-    ]);
+    return view('welcome');
 });
 
 // Health check

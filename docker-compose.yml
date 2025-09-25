@@ -33,7 +33,7 @@ services:
       DB_PORT: 5432
       DB_DATABASE: chat_api
       DB_USERNAME: purgato
-      DB_PASSWORD: 'Purgato$$123**'
+      DB_PASSWORD: 'Purgato$123**'
     depends_on:
       database:
         condition: service_started

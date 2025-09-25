@@ -31,7 +31,7 @@ Route::prefix('v1')->name('api.')->group(function () {
 // =====================
 // Rotas protegidas (auth:sanctum)
 // =====================
-Route::prefix('v1')->name('api.')->middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+Route::prefix('v1')->name('api.')->middleware(['auth:sanctum'])->group(function () {
     // Autenticação
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::post('/auth/logout-all', [AuthController::class, 'logoutAll']);
