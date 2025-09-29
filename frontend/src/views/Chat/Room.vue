@@ -1,3 +1,372 @@
+<script setup lang="ts">
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import axios from 'axios'
+import ChatLayout from '@/layouts/ChatLayout.vue'
+//import RoomUserManager from '@/components/RoomUserManager.vue'
+
+const props = defineProps({
+  room: Object,
+  messages: Array,
+  user: Object,
+})
+
+const router = useRouter()
+
+// Token Bearer e Axios configuração
+let bearerToken = ''
+
+onMounted(() => {
+  const url = new URL(window.location.href)
+  const tokenQuery = url.searchParams.get('token')
+  if (tokenQuery) {
+    bearerToken = tokenQuery
+    localStorage.setItem('chat_token', bearerToken)
+    axios.defaults.headers.common['Authorization'] = `Bearer ${bearerToken}`
+  } else {
+    bearerToken = localStorage.getItem('chat_token') || ''
+    if (bearerToken) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${bearerToken}`
+    }
+  }
+  setupEchoBearer()
+})
+
+// Config Echo
+import Echo from 'laravel-echo'
+import Pusher from 'pusher-js'
+let echoInstance = null
+
+function setupEchoBearer() {
+  if (!bearerToken) return
+
+  window.Pusher = Pusher
+  window.Echo = new Echo({
+    broadcaster: 'pusher',
+    key: import.meta.env.VITE_PUSHER_APP_KEY,
+    cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
+    forceTLS: true,
+    authorizer: (channel, options) => ({
+      authorize: (socketId, callback) => {
+        fetch('/broadcasting/auth', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${bearerToken}`,
+          },
+          body: JSON.stringify({
+            socket_id: socketId,
+            channel_name: channel.name,
+          }),
+        })
+          .then((res) => res.json())
+          .then((data) => callback(false, data))
+          .catch((err) => callback(true, err))
+      },
+    }),
+  })
+
+  cleanupEcho()
+  setupEchoListeners()
+}
+
+const {
+  room,
+  messages,
+  user,
+} = props
+
+const messageInput = ref(null)
+const messagesContainer = ref(null)
+
+const newMessage = ref('')
+const isSending = ref(false)
+const localMessages = ref([...messages])
+const editingMessage = ref(null)
+const editMessageContent = ref('')
+const showUserManager = ref(false)
+const connectionStatus = ref('disconnected')
+
+const activeTab = ref('public')
+const privateConversations = ref([])
+const currentPrivateConversation = ref(null)
+const currentPrivateMessages = ref([])
+const showMentionDropdown = ref(false)
+const mentionUsers = ref([])
+const selectedMentionIndex = ref(0)
+const mentionStartIndex = ref(-1)
+const roomUsers = ref([])
+
+const canManageUsers = computed(() => room.created_by === user.id)
+
+const getPlaceholderText = computed(() =>
+  activeTab.value === 'public'
+    ? 'Digite @ para mencionar usuários...'
+    : currentPrivateConversation.value
+    ? 'Digite sua mensagem...'
+    : 'Selecione uma conversa'
+)
+
+const btnActivePublic = computed(() =>
+  activeTab.value === 'public'
+    ? 'px-3 py-2 rounded text-sm font-medium bg-blue-500 text-white'
+    : 'px-3 py-2 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300'
+)
+const btnActivePriv = computed(() =>
+  activeTab.value === 'private'
+    ? 'px-3 py-2 rounded text-sm font-medium bg-blue-500 text-white'
+    : 'px-3 py-2 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300'
+)
+
+const msgSent =
+  'self-end bg-blue-500 text-white'
+const msgRecv =
+  'self-start bg-gray-100 text-gray-900'
+
+// Funções: loadPrivateConversations(), loadRoomUsers(), selectPrivateConversation(), switchToPublic(), handleInput(), handleKeydown(), selectMention(), scrollToBottom(), sendMessage(), cancelEdit(), updateMessage(), deleteMessage(), leaveRoom(), formatTime(), formatDate(), cleanupEcho(), setupEchoListeners()
+// (mesmo código original, mas ajuste chamadas router.post() para axios.post() e navegação via router.push() quando necessário)
+
+async function loadPrivateConversations() {
+  try {
+    const { data } = await axios.get('/chat/private-conversations')
+    privateConversations.value = data
+  } catch (e) {
+    console.error('Erro ao carregar conversas privadas:', e)
+  }
+}
+
+async function loadRoomUsers() {
+  try {
+    const url = `/chat/rooms/${room.slug}/available-users`
+    const { data } = await axios.get(url)
+    roomUsers.value = data.filter((u) => u.id !== user.id)
+  } catch (e) {
+    roomUsers.value = room.users.filter((u) => u.id !== user.id)
+  }
+}
+
+async function selectPrivateConversation(conversation) {
+  currentPrivateConversation.value = conversation
+  try {
+    const { data } = await axios.get(`/chat/private-conversations/${conversation.id}`)
+    currentPrivateMessages.value = data.messages
+    await nextTick()
+    scrollToBottom()
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+function switchToPublic() {
+  activeTab.value = 'public'
+  currentPrivateConversation.value = null
+  currentPrivateMessages.value = []
+  nextTick(scrollToBottom)
+}
+
+function handleInput() {
+  if (activeTab.value !== 'public') return
+  const input = messageInput.value
+  if (!input) return
+  const val = input.value
+  const pos = input.selectionStart
+  let start = -1
+  for (let i = pos - 1; i >= 0; i--) {
+    if (val[i] === '@') {
+      start = i
+      break
+    }
+    if (val[i] === ' ') break
+  }
+  if (start !== -1) {
+    mentionStartIndex.value = start
+    const term = val.substring(start + 1, pos).toLowerCase()
+    mentionUsers.value = roomUsers.value.filter(
+      (u) =>
+        u.name.toLowerCase().includes(term) ||
+        u.email.toLowerCase().includes(term)
+    )
+    showMentionDropdown.value = mentionUsers.value.length > 0
+    selectedMentionIndex.value = 0
+  } else {
+    showMentionDropdown.value = false
+    mentionUsers.value = []
+  }
+}
+
+function handleKeydown(e) {
+  if (!showMentionDropdown.value) return
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    selectedMentionIndex.value = Math.min(
+      selectedMentionIndex.value + 1,
+      mentionUsers.value.length - 1
+    )
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    selectedMentionIndex.value = Math.max(selectedMentionIndex.value - 1, 0)
+  } else if (e.key === 'Enter' && showMentionDropdown.value) {
+    e.preventDefault()
+    selectMention(mentionUsers.value[selectedMentionIndex.value])
+  } else if (e.key === 'Escape') showMentionDropdown.value = false
+}
+
+async function selectMention(u) {
+  const input = messageInput.value
+  const beforeMention = newMessage.value.substring(0, mentionStartIndex.value)
+  const afterCursor = newMessage.value.substring(input.selectionStart)
+  newMessage.value = beforeMention + '@' + u.name + ' ' + afterCursor
+  nextTick(() => {
+    const newPosition = beforeMention.length + u.name.length + 2
+    input.setSelectionRange(newPosition, newPosition)
+  })
+
+  try {
+    const { data } = await axios.post('/chat/private-conversations', { user_id: u.id })
+    await loadPrivateConversations()
+    activeTab.value = 'private'
+    currentPrivateConversation.value = data
+    currentPrivateMessages.value = data.messages || []
+    scrollToBottom()
+  } catch (e) {}
+  showMentionDropdown.value = false
+  mentionUsers.value = []
+}
+
+function scrollToBottom() {
+  nextTick(() => {
+    if (messagesContainer.value) messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+  })
+}
+
+async function sendMessage() {
+  if (!newMessage.value.trim()) return
+  isSending.value = true
+  try {
+    if (activeTab.value === 'public') {
+      await axios.post(`/chat/rooms/${room.slug}/messages`, { content: newMessage.value })
+      newMessage.value = ''
+      await nextTick()
+      scrollToBottom()
+    } else if (currentPrivateConversation.value) {
+      await axios.post(`/chat/private-conversations/${currentPrivateConversation.value.id}/messages`, { content: newMessage.value })
+      await loadPrivateConversations()
+      newMessage.value = ''
+      await nextTick()
+      scrollToBottom()
+    }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    isSending.value = false
+  }
+}
+
+function cancelEdit() {
+  editingMessage.value = null
+  editMessageContent.value = ''
+}
+
+async function updateMessage() {
+  if (!editMessageContent.value.trim()) return
+  isSending.value = true
+  try {
+    if(!editingMessage.value) return;
+    await axios.put(`/chat/messages/${editingMessage.value.id}`, { content: editMessageContent.value })
+    cancelEdit()
+  } catch (e) {
+    console.error(e)
+  } finally {
+    isSending.value = false
+  }
+}
+
+async function deleteMessage(id) {
+  if (!confirm('Confirma?')) return
+  try {
+    await axios.delete(`/chat/messages/${id}`)
+    const idx = localMessages.value.findIndex(m => m.id === id)
+    if(idx > -1) localMessages.value.splice(idx, 1)
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+async function leaveRoom() {
+  if (!confirm('Confirma saída?')) return
+  try {
+    await axios.delete(`/chat/rooms/${room.slug}/leave`)
+    router.push('/dashboard')
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+function formatTime(t) {
+  return new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatDate(t) {
+  return new Date(t).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+let echoChannel = null
+let privateEchoChannel = null
+
+function cleanupEcho() {
+  if (echoChannel) {
+    window.Echo.leave(`room.${room.slug}`)
+    echoChannel = null
+  }
+  if (privateEchoChannel) {
+    window.Echo.leave(`user.${user.id}`)
+    privateEchoChannel = null
+  }
+}
+
+function setupEchoListeners() {
+  if (!window.Echo) return
+  echoChannel = window.Echo.private(`room.${room.slug}`).listen('.message.sent', (e) => {
+    if (!localMessages.value.some((m) => m.id === e.id)) {
+      localMessages.value.push(e)
+      if (activeTab.value === 'public') scrollToBottom()
+    }
+  })
+  privateEchoChannel = window.Echo.private(`user.${user.id}`).listen('.private-message-sent', (e) => {
+    if (activeTab.value === 'private' && currentPrivateConversation.value?.id === e.message.conversation_id) {
+      currentPrivateMessages.value.push(e.message)
+      scrollToBottom()
+    }
+    loadPrivateConversations()
+  })
+}
+
+watch(
+  () => room.slug,
+  async () => {
+    activeTab.value = 'public'
+    currentPrivateConversation.value = null
+    currentPrivateMessages.value = []
+    await loadPrivateConversations()
+    await loadRoomUsers()
+    cleanupEcho()
+    setupEchoBearer()
+  }
+)
+
+onMounted(async () => {
+  localMessages.value = messages.map((m) => ({ ...m }))
+  scrollToBottom()
+  await loadPrivateConversations()
+  await loadRoomUsers()
+  cleanupEcho()
+  setupEchoBearer()
+})
+
+onUnmounted(() => {
+  cleanupEcho()
+})
+</script>
 <template>
     <ChatLayout :title="`Sala: ${room.name}`">
         <div class="bg-blue-50 py-12">
@@ -187,333 +556,3 @@
         </div>
     </ChatLayout>
 </template>
-
-<script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
-import { usePage, router } from '@inertiajs/vue3';
-import axios from 'axios';
-import { route } from 'ziggy-js';
-import ChatLayout from '@/layouts/ChatLayout.vue';
-import RoomUserManager from '@/components/RoomUserManager.vue';
-
-// ============ TOKEN AUTENTICAÇÃO ============
-let bearerToken = '';
-// Ao montar, extrai o token da URL
-onMounted(() => {
-    const url = new URL(window.location.href);
-    const tokenQuery = url.searchParams.get('token');
-    if (tokenQuery) {
-        bearerToken = tokenQuery;
-        localStorage.setItem('chat_token', bearerToken);
-        axios.defaults.headers.common['Authorization'] = `Bearer ${bearerToken}`;
-    } else {
-        bearerToken = localStorage.getItem('chat_token') || '';
-        if (bearerToken)
-            axios.defaults.headers.common['Authorization'] = `Bearer ${bearerToken}`;
-    }
-    setupEchoBearer();
-});
-
-// ============ CONFIGURA ECHO PARA USAR TOKEN ============
-import Echo from 'laravel-echo';
-import Pusher from 'pusher-js';
-let echoInstance = null;
-
-function setupEchoBearer() {
-    if (!bearerToken) return;
-
-    window.Pusher = Pusher;
-    window.Echo = new Echo({
-        broadcaster: 'pusher',
-        key: import.meta.env.VITE_PUSHER_APP_KEY,
-        cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
-        forceTLS: true,
-        authorizer: (channel, options) => {
-            return {
-                authorize: (socketId, callback) => {
-                    fetch('/broadcasting/auth', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${bearerToken}`,
-                        },
-                        body: JSON.stringify({
-                            socket_id: socketId,
-                            channel_name: channel.name,
-                        }),
-                    })
-                        .then(res => res.json())
-                        .then(data => callback(false, data))
-                        .catch(err => callback(true, err));
-                },
-            };
-        },
-    });
-
-    // (opcional) Re-setup listeners se necessário
-    cleanupEcho();
-    setupEchoListeners();
-}
-
-const { props: pageProps } = usePage();
-const props = defineProps({ room: Object, messages: Array });
-const user = pageProps.auth?.user || {};
-
-const messageInput = ref(null);
-const messagesContainer = ref(null);
-
-const newMessage = ref(''), isSending = ref(false);
-const localMessages = ref([]), editingMessage = ref(null), editMessageContent = ref('');
-const showUserManager = ref(false), connectionStatus = ref('disconnected');
-
-const activeTab = ref('public');
-const privateConversations = ref([]), currentPrivateConversation = ref(null), currentPrivateMessages = ref([]);
-
-const showMentionDropdown = ref(false), mentionUsers = ref([]), selectedMentionIndex = ref(0),
-    mentionStartIndex = ref(-1), roomUsers = ref([]);
-
-const canManageUsers = computed(() => props.room.created_by === user.id);
-const getPlaceholderText = computed(() => activeTab.value === 'public' ? 'Digite @ para mencionar usuários...' : (currentPrivateConversation.value ? 'Digite sua mensagem...' : 'Selecione uma conversa'));
-const btnActivePublic = computed(() => activeTab.value === 'public' ? 'px-3 py-2 rounded text-sm font-medium bg-blue-500 text-white' : 'px-3 py-2 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300');
-const btnActivePriv = computed(() => activeTab.value === 'private' ? 'px-3 py-2 rounded text-sm font-medium bg-blue-500 text-white' : 'px-3 py-2 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300');
-const msgSent = 'self-end bg-blue-500 text-white', msgRecv = 'self-start bg-gray-100 text-gray-900';
-
-async function loadPrivateConversations() {
-    try {
-        const { data } = await axios.get('/chat/private-conversations');
-        privateConversations.value = data;
-    } catch (e) {
-        console.error('Erro ao carregar conversas privadas:', e);
-    }
-}
-
-async function loadRoomUsers() {
-    try {
-        const url = `/chat/rooms/${props.room.slug}/available-users`;
-        const { data } = await axios.get(url);
-        roomUsers.value = data.filter(u => u.id !== user.id);
-    } catch (e) {
-        roomUsers.value = props.room.users.filter(u => u.id !== user.id);
-    }
-}
-
-async function selectPrivateConversation(conversation) {
-    currentPrivateConversation.value = conversation;
-    try {
-        const { data } = await axios.get(`/chat/private-conversations/${conversation.id}`);
-        currentPrivateMessages.value = data.messages;
-        await nextTick();
-        scrollToBottom();
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-function switchToPublic() {
-    activeTab.value = 'public';
-    currentPrivateConversation.value = null;
-    currentPrivateMessages.value = [];
-    nextTick(scrollToBottom);
-}
-
-function handleInput() {
-    if (activeTab.value !== 'public') return;
-    const input = messageInput.value;
-    if (!input) return;
-    const val = input.value, pos = input.selectionStart;
-    let start = -1;
-    for (let i = pos - 1; i >= 0; i--) {
-        if (val[i] === '@') {
-            start = i;
-            break;
-        }
-        if (val[i] === ' ') break;
-    }
-    if (start !== -1) {
-        mentionStartIndex.value = start;
-        const term = val.substring(start + 1, pos).toLowerCase();
-        mentionUsers.value = roomUsers.value.filter(u => u.name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term));
-        showMentionDropdown.value = mentionUsers.value.length > 0;
-        selectedMentionIndex.value = 0;
-    } else {
-        showMentionDropdown.value = false;
-        mentionUsers.value = [];
-    }
-}
-
-function handleKeydown(e) {
-    if (!showMentionDropdown.value) return;
-    if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        selectedMentionIndex.value = Math.min(selectedMentionIndex.value + 1, mentionUsers.value.length - 1);
-    } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        selectedMentionIndex.value = Math.max(selectedMentionIndex.value - 1, 0);
-    } else if (e.key === 'Enter' && showMentionDropdown.value) {
-        e.preventDefault();
-        selectMention(mentionUsers.value[selectedMentionIndex.value]);
-    } else if (e.key === 'Escape') showMentionDropdown.value = false;
-}
-
-async function selectMention(u) {
-    const input = messageInput.value;
-    const beforeMention = newMessage.value.substring(0, mentionStartIndex.value);
-    const afterCursor = newMessage.value.substring(input.selectionStart);
-    newMessage.value = beforeMention + '@' + u.name + ' ' + afterCursor;
-    nextTick(() => {
-        const newPosition = beforeMention.length + u.name.length + 2;
-        input.setSelectionRange(newPosition, newPosition);
-    });
-
-    try {
-        const { data } = await axios.post('/chat/private-conversations', { user_id: u.id });
-        await loadPrivateConversations();
-        activeTab.value = 'private';
-        currentPrivateConversation.value = data;
-        currentPrivateMessages.value = data.messages || [];
-        scrollToBottom();
-    } catch (e) {}
-    showMentionDropdown.value = false;
-    mentionUsers.value = [];
-}
-
-function scrollToBottom() {
-    nextTick(() => {
-        if (messagesContainer.value) messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
-    });
-}
-
-async function sendMessage() {
-    if (!newMessage.value.trim()) return;
-    isSending.value = true;
-    try {
-        if (activeTab.value === 'public') {
-            await router.post(route('messages.store', props.room.slug), { content: newMessage.value }, {
-                preserveState: true,
-                onSuccess: () => {
-                    newMessage.value = '';
-                    scrollToBottom();
-                }
-            });
-        } else if (currentPrivateConversation.value) {
-            await axios.post(
-                `/chat/private-conversations/${currentPrivateConversation.value.id}/messages`,
-                { content: newMessage.value }
-            );
-            await loadPrivateConversations();
-            newMessage.value = '';
-            await nextTick();
-            scrollToBottom();
-        }
-    } catch (e) {
-        console.error(e);
-    } finally {
-        isSending.value = false;
-    }
-}
-
-function cancelEdit() {
-    editingMessage.value = null;
-    editMessageContent.value = '';
-}
-
-async function updateMessage() {
-    if (!editMessageContent.value.trim()) return;
-    isSending.value = true;
-    try {
-        await router.put(route('messages.update', editingMessage.value.slug), { content: editMessageContent.value }, {
-            preserveState: true,
-            onSuccess: cancelEdit
-        });
-    } catch (e) {
-        console.error(e);
-    } finally {
-        isSending.value = false;
-    }
-}
-
-async function deleteMessage(id) {
-    if (!confirm('Confirma?')) return;
-    try {
-        await router.delete(route('messages.destroy', id), {
-            preserveState: true, onSuccess: () => {
-                const i = localMessages.value.findIndex(m => m.id === id);
-                if (i > -1) localMessages.value.splice(i, 1);
-            }
-        });
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-async function leaveRoom() {
-    if (!confirm('Confirma saída?')) return;
-    try {
-        await router.delete(route('rooms.leave', props.room.slug));
-    } catch (e) {
-        console.error(e);
-    }
-}
-
-function formatTime(t) {
-    return new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatDate(t) {
-    return new Date(t).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-}
-
-let echoChannel = null, privateEchoChannel = null;
-
-function cleanupEcho() {
-    if (echoChannel) {
-        window.Echo.leave(`room.${props.room.slug}`);
-        echoChannel = null;
-    }
-    if (privateEchoChannel) {
-        window.Echo.leave(`user.${user.id}`);
-        privateEchoChannel = null;
-    }
-}
-
-function setupEchoListeners() {
-    if (!window.Echo) return;
-    echoChannel = window.Echo.private(`room.${props.room.slug}`)
-        .listen('.message.sent', e => {
-            if (!localMessages.value.some(m => m.id === e.id)) {
-                localMessages.value.push(e);
-                if (activeTab.value === 'public') scrollToBottom();
-            }
-        });
-    privateEchoChannel = window.Echo.private(`user.${user.id}`)
-        .listen('.private-message-sent', e => {
-            if (activeTab.value === 'private' &&
-                currentPrivateConversation.value?.id === e.message.conversation_id) {
-                currentPrivateMessages.value.push(e.message);
-                scrollToBottom();
-            }
-            loadPrivateConversations();
-        });
-}
-
-watch(() => props.room.slug, async () => {
-    activeTab.value = 'public';
-    currentPrivateConversation.value = null;
-    currentPrivateMessages.value = [];
-    await loadPrivateConversations();
-    await loadRoomUsers();
-    cleanupEcho();
-    setupEchoBearer();
-});
-
-onMounted(async () => {
-    localMessages.value = props.messages.map(m => ({ ...m }));
-    scrollToBottom();
-    await loadPrivateConversations();
-    await loadRoomUsers();
-    cleanupEcho();
-    setupEchoBearer();
-});
-onUnmounted(cleanupEcho);
-
-</script>

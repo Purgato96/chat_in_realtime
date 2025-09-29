@@ -131,7 +131,6 @@
       <path value="$PROJECT_DIR$/backend/vendor/theseer/tokenizer" />
       <path value="$PROJECT_DIR$/backend/vendor/nesbot/carbon" />
       <path value="$PROJECT_DIR$/backend/vendor/laravel/pail" />
-      <path value="$PROJECT_DIR$/backend/vendor/laravel/sanctum" />
       <path value="$PROJECT_DIR$/backend/vendor/laravel/pulse" />
       <path value="$PROJECT_DIR$/backend/vendor/doctrine/sql-formatter" />
       <path value="$PROJECT_DIR$/backend/vendor/livewire/livewire" />
@@ -139,6 +138,10 @@
       <path value="$PROJECT_DIR$/backend/vendor/pusher/pusher-php-server" />
       <path value="$PROJECT_DIR$/backend/vendor/laravel/horizon" />
       <path value="$PROJECT_DIR$/backend/vendor/predis/predis" />
+      <path value="$PROJECT_DIR$/backend/vendor/namshi/jose" />
+      <path value="$PROJECT_DIR$/backend/vendor/lcobucci/jwt" />
+      <path value="$PROJECT_DIR$/backend/vendor/php-open-source-saver/jwt-auth" />
+      <path value="$PROJECT_DIR$/backend/vendor/spatie/laravel-permission" />
     </include_path>
   </component>
   <component name="PhpProjectSharedConfiguration" php_language_level="8.4" />

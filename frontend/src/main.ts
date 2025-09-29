@@ -1,6 +1,7 @@
 import './assets/main.css'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import { initializeTheme } from '@/composables/useAppearance'
 
 import api from './lib/axios'
 import echo from './lib/echo'
@@ -18,3 +19,4 @@ app.use(createPinia())
 app.use(router)
 
 app.mount('#app')
+initializeTheme()

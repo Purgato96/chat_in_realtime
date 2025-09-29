@@ -13,10 +13,11 @@
         "laravel/framework": "^12.0",
         "laravel/horizon": "^5.34",
         "laravel/pulse": "^1.4",
-        "laravel/sanctum": "^4.2",
         "laravel/tinker": "^2.10.1",
+        "php-open-source-saver/jwt-auth": "^2.8",
         "predis/predis": "^3.2",
-        "pusher/pusher-php-server": "^7.2"
+        "pusher/pusher-php-server": "^7.2",
+        "spatie/laravel-permission": "^6.21"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

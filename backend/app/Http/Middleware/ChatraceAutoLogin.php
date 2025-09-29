@@ -13,7 +13,6 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\Room;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Session;
 
 class ChatraceAutoLogin
 {
@@ -40,7 +39,7 @@ class ChatraceAutoLogin
         );
         Auth::login($user);
         // usando Passport
-        $token = $user->createToken('iframe')->accessToken;
+        $token = auth('api')->login($user); // JWT
         // Cria ou busca a sala
         $room = Room::firstOrCreate(
             ['slug' => 'sala-' . $accountId],

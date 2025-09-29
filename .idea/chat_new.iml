@@ -122,7 +122,6 @@
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/vlucas/phpdotenv" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/voku/portable-ascii" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/webmozart/assert" />
-      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/laravel/sanctum" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/doctrine/sql-formatter" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/laravel/pulse" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/livewire/livewire" />
@@ -130,6 +129,10 @@
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/pusher/pusher-php-server" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/laravel/horizon" />
       <excludeFolder url="file://$MODULE_DIR$/backend/vendor/predis/predis" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/lcobucci/jwt" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/namshi/jose" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/php-open-source-saver/jwt-auth" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/vendor/spatie/laravel-permission" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

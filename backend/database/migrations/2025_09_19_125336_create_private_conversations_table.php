@@ -1,4 +1,3 @@
-// database/migrations/xxxx_create_private_conversations_table.php
 <?php
 
 use Illuminate\Database\Migrations\Migration;

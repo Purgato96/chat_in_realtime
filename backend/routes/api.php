@@ -29,9 +29,9 @@ Route::prefix('v1')->name('api.')->group(function () {
 });
 
 // =====================
-// Rotas protegidas (auth:sanctum)
+// Rotas protegidas (auth:api)
 // =====================
-Route::prefix('v1')->name('api.')->middleware(['auth:sanctum'])->group(function () {
+Route::prefix('v1')->name('api.')->middleware(['auth:api'])->group(function () {
     // Autenticação
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::post('/auth/logout-all', [AuthController::class, 'logoutAll']);
@@ -69,9 +69,9 @@ Route::prefix('v1')->name('api.')->middleware(['auth:sanctum'])->group(function 
 });
 
 // =====================
-// Broadcasting auth (Sanctum)
+// Broadcasting auth (auth:api)
 // =====================
-Route::middleware(['auth:sanctum'])->post('/broadcasting/auth', function (Request $request) {
+Route::middleware(['auth:api'])->post('/broadcasting/auth', function (Request $request) {
     return response()->json([
         'auth' => optional($request->user())->id,
     ]);

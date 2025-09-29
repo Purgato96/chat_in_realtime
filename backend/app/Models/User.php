@@ -11,13 +11,14 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Laravel\Sanctum\HasApiTokens;
+use PHPOpenSourceSaver\JWTAuth\Contracts\JWTSubject;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-class User extends Authenticatable
+use Spatie\Permission\Traits\HasRoles;
+class User extends Authenticatable implements JWTSubject
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasApiTokens, HasFactory, Notifiable;
+
+    use  HasFactory, Notifiable, HasRoles;
 
     /**
      * The attributes that are mass assignable.
@@ -71,45 +72,6 @@ class User extends Authenticatable
         return $this->hasMany(Message::class);
     }
 
-    // --- Métodos para Tokens (Sanctum) ---
-    /**
-     * Cria token com habilidades específicas para chat
-     */
-    public function createChatToken(string $deviceName): string
-    {
-        return $this->createToken($deviceName, [
-            'chat:read',
-            'chat:write',
-            'chat:join',
-            'chat:leave'
-        ])->plainTextToken;
-    }
-
-    /**
-     * Verifica se o usuário tem permissão específica
-     */
-    public function canChat(string $ability): bool
-    {
-        $token = $this->currentAccessToken();
-
-        if (!$token) {
-            return false;
-        }
-
-        return $token->can($ability);
-    }
-
-    /**
-     * Lista tokens ativos do usuário
-     */
-    public function activeTokens()
-    {
-        return $this->tokens()
-            ->where('last_used_at', '>', now()->subDays(30))
-            ->orWhereNull('last_used_at')
-            ->get();
-    }
-
     public function privateConversationsAsUserOne()
     {
         return $this->hasMany(PrivateConversation::class, 'user_one_id');
@@ -131,4 +93,13 @@ class User extends Authenticatable
         return $this->hasMany(PrivateMessage::class, 'sender_id');
     }
 
+    public function getJWTIdentifier()
+    {
+        return $this->getKey();
+    }
+
+    public function getJWTCustomClaims()
+    {
+        return [];
+    }
 }

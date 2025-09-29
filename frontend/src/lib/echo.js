@@ -1,4 +1,4 @@
-import authAxios from '@/lib/axios-auth';
+import api from 'axios'; // aqui seria seu axios.js (token Bearer)
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
 
@@ -13,18 +13,19 @@ export default new Echo({
   wssPort: import.meta.env.VITE_PUSHER_PORT ?? 443,
   forceTLS: (import.meta.env.VITE_PUSHER_SCHEME ?? 'https') === 'https',
   enabledTransports: ['ws', 'wss'],
-
-  authEndpoint: '/broadcasting/auth',
-  withCredentials: true,  // envia cookies de sessão
-
   authorizer: (channel, options) => ({
     authorize: (socketId, callback) => {
-      authAxios.post(options.authEndpoint, {
+      const token = localStorage.getItem('chat_token');
+      api.post('/broadcasting/auth', {
         socket_id: socketId,
         channel_name: channel.name,
+      }, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       })
-        .then(response => callback(false, response.data))
-        .catch(error => callback(true, error));
+      .then(response => callback(false, response.data))
+      .catch(error => callback(true, error));
     }
   }),
 });

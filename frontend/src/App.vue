@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import Welcome from "@/pages/Welcome.vue";
 </script>
 
 <template>
-  <Welcome />
+  <router-view />
 </template>
 
-<style scoped></style>
+<style scoped>
+</style>
