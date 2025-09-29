@@ -1,65 +1,95 @@
+<script setup>
+import { ref, reactive } from 'vue';
+import { useAuth } from '@/composables/useAuth';
+import { useRouter } from 'vue-router';
+
+const { login, loading } = useAuth();
+const router = useRouter();
+const error = ref('');
+
+const form = reactive({
+  email: '',
+  password: ''
+});
+
+const handleSubmit = async () => {
+  error.value = '';
+
+  try {
+    await login(form);
+    router.push('/chat');
+  } catch (err) {
+    error.value = err.response?.data?.message || 'Erro ao fazer login';
+    console.error('Erro no login:', err);
+  }
+};
+</script>
+
 <template>
-  <div class="flex min-h-screen flex-col items-center justify-center bg-black p-6">
-    <div class="max-w-sm w-full space-y-8 bg-transparent">
-      <h1 class="text-2xl font-bold text-white mb-2">Log in to your account</h1>
-      <form @submit.prevent="submit" class="flex flex-col gap-6">
-        <div>
-          <label for="email" class="text-white text-sm mb-1 block">Email address</label>
-          <input id="email" v-model="form.email" type="email" required class="w-full rounded-md border border-gray-600 bg-black text-white px-3 py-2" placeholder="email@example.com"/>
-          <div v-if="errors.email" class="text-red-500 text-xs mt-1">{{ errors.email }}</div>
+  <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-md w-full space-y-8">
+      <div>
+        <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+          Entrar na sua conta
+        </h2>
+        <p class="mt-2 text-center text-sm text-gray-600">
+          Digite suas credenciais para acessar
+        </p>
+      </div>
+
+      <form class="mt-8 space-y-6" @submit.prevent="handleSubmit">
+        <div class="rounded-md shadow-sm -space-y-px">
+          <div>
+            <label for="email" class="sr-only">Email</label>
+            <input
+              id="email"
+              v-model="form.email"
+              name="email"
+              type="email"
+              autocomplete="email"
+              required
+              class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+              placeholder="Email"
+              :disabled="loading"
+            />
+          </div>
+          <div>
+            <label for="password" class="sr-only">Senha</label>
+            <input
+              id="password"
+              v-model="form.password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+              class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+              placeholder="Senha"
+              :disabled="loading"
+            />
+          </div>
         </div>
-        <div>
-          <label for="password" class="text-white text-sm mb-1 block">Password</label>
-          <input id="password" v-model="form.password" type="password" required class="w-full rounded-md border border-gray-600 bg-black text-white px-3 py-2" placeholder="Password"/>
-          <div v-if="errors.password" class="text-red-500 text-xs mt-1">{{ errors.password }}</div>
+
+        <div v-if="error" class="text-red-600 text-sm text-center">
+          {{ error }}
         </div>
-        <button type="submit" :disabled="processing" class="w-full py-2 rounded-md text-black font-semibold bg-white hover:bg-gray-200 transition disabled:bg-gray-700 disabled:text-gray-400">
-          {{ processing ? "Log in..." : "Log in" }}
-        </button>
-        <div v-if="errorMessage" class="text-center text-red-400 mt-2 text-xs">{{ errorMessage }}</div>
+
+        <div>
+          <button
+            type="submit"
+            :disabled="loading"
+            class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+          >
+            {{ loading ? 'Entrando...' : 'Entrar' }}
+          </button>
+        </div>
+
+        <div class="text-center">
+          <span class="text-sm text-gray-600">Não tem conta? </span>
+          <router-link to="/register" class="font-medium text-indigo-600 hover:text-indigo-500">
+            Registrar-se
+          </router-link>
+        </div>
       </form>
-      <p class="text-center text-white text-sm mt-6">
-        Don't have an account? <router-link to="/register" class="text-blue-400 hover:underline">Sign up</router-link>
-      </p>
     </div>
   </div>
 </template>
-
-<script setup>
-import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import api from '@/lib/axios.js' // axios com interceptor token Bearer
-
-const router = useRouter()
-const form = reactive({ email: '', password: '', remember: false })
-const errors = reactive({})
-const errorMessage = ref('')
-const processing = ref(false)
-
-async function submit() {
-  processing.value = true
-  errorMessage.value = ''
-  Object.keys(errors).forEach(k => delete errors[k])
-  try {
-    const res = await api.post('/auth/login', {
-      email: form.email,
-      password: form.password,
-      device_name: 'web',
-    })
-    if (res.data.token) {
-      localStorage.setItem('chat_token', res.data.token)
-      router.push('/dashboard')
-    } else {
-      errorMessage.value = 'Login failed'
-    }
-  } catch (err) {
-    if (err.response?.status === 422) {
-      Object.assign(errors, err.response.data.errors || {})
-    } else {
-      errorMessage.value = err.response?.data?.message || 'Unexpected error'
-    }
-  } finally {
-    processing.value = false
-  }
-}
-</script>

@@ -1,35 +1,21 @@
 <?php
 
-/**
- * Configura os canais e a autenticação
- * utilizados pelo broadcasting de eventos
- * em tempo real via Pusher.
- */
-
 namespace App\Providers;
 
-use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\ServiceProvider;
 
 class BroadcastServiceProvider extends ServiceProvider
 {
-    /**
-     * Register services.
-     */
-    public function register(): void
-    {
-        //
-    }
-
-    /**
-     * Bootstrap services.
-     */
     public function boot(): void
     {
-        // Registrar as rotas de broadcasting com o middleware 'auth:sanctum' ou 'auth' para proteger o endpoint de autenticação
-        Broadcast::routes(['middleware' => ['auth:sanctum']]);
+        // Usa o guard 'api' (JWT) para autenticar /broadcasting/auth
+        Broadcast::routes([
+            'middleware' => ['auth:api'],
+            // Se sua API estiver em /api, descomente a linha abaixo e ajuste o authEndpoint no frontend
+            // 'prefix' => 'api',
+        ]);
 
-        // Registrar os canais definidos em routes/channels.php
         require base_path('routes/channels.php');
     }
 }

@@ -1,558 +1,510 @@
-<script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import axios from 'axios'
-import ChatLayout from '@/layouts/ChatLayout.vue'
-//import RoomUserManager from '@/components/RoomUserManager.vue'
+<script setup>
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useAuth } from '@/composables/useAuth';
+import { useRooms } from '@/composables/useRooms';
+import { useMessages } from '@/composables/useMessages';
+import { usePrivateConversations } from '@/composables/usePrivateConversations';
+import { useWebSocket } from '@/composables/useWebSocket';
+import { RoomService } from '@/services';
+import ChatLayout from '@/layouts/ChatLayout.vue';
 
-const props = defineProps({
-  room: Object,
-  messages: Array,
-  user: Object,
-})
+const route = useRoute();
+const router = useRouter();
 
-const router = useRouter()
-
-// Token Bearer e Axios configuração
-let bearerToken = ''
-
-onMounted(() => {
-  const url = new URL(window.location.href)
-  const tokenQuery = url.searchParams.get('token')
-  if (tokenQuery) {
-    bearerToken = tokenQuery
-    localStorage.setItem('chat_token', bearerToken)
-    axios.defaults.headers.common['Authorization'] = `Bearer ${bearerToken}`
-  } else {
-    bearerToken = localStorage.getItem('chat_token') || ''
-    if (bearerToken) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${bearerToken}`
-    }
-  }
-  setupEchoBearer()
-})
-
-// Config Echo
-import Echo from 'laravel-echo'
-import Pusher from 'pusher-js'
-let echoInstance = null
-
-function setupEchoBearer() {
-  if (!bearerToken) return
-
-  window.Pusher = Pusher
-  window.Echo = new Echo({
-    broadcaster: 'pusher',
-    key: import.meta.env.VITE_PUSHER_APP_KEY,
-    cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
-    forceTLS: true,
-    authorizer: (channel, options) => ({
-      authorize: (socketId, callback) => {
-        fetch('/broadcasting/auth', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${bearerToken}`,
-          },
-          body: JSON.stringify({
-            socket_id: socketId,
-            channel_name: channel.name,
-          }),
-        })
-          .then((res) => res.json())
-          .then((data) => callback(false, data))
-          .catch((err) => callback(true, err))
-      },
-    }),
-  })
-
-  cleanupEcho()
-  setupEchoListeners()
-}
-
+// Composables
+const { user } = useAuth();
+const { currentRoom, fetchRoomBySlug } = useRooms();
+const { messages, fetchMessages, sendMessage: sendRoomMessage, addMessage, removeMessage, updateMessageInList } = useMessages();
 const {
-  room,
-  messages,
-  user,
-} = props
+  conversations,
+  currentConversation,
+  messages: privateMessages,
+  fetchConversations,
+  startConversation,
+  openConversation,
+  sendMessage: sendPrivateMessage,
+  addMessage: addPrivateMessage
+} = usePrivateConversations();
+const { connectionStatus, connect, joinRoom, joinUserChannel, disconnect } = useWebSocket();
 
-const messageInput = ref(null)
-const messagesContainer = ref(null)
+// Estado local
+const messageInput = ref(null);
+const messagesContainer = ref(null);
+const newMessage = ref('');
+const isSending = ref(false);
+const editingMessage = ref(null);
+const editMessageContent = ref('');
+const showUserManager = ref(false);
 
-const newMessage = ref('')
-const isSending = ref(false)
-const localMessages = ref([...messages])
-const editingMessage = ref(null)
-const editMessageContent = ref('')
-const showUserManager = ref(false)
-const connectionStatus = ref('disconnected')
+const activeTab = ref('public');
+const showMentionDropdown = ref(false);
+const mentionUsers = ref([]);
+const selectedMentionIndex = ref(0);
+const mentionStartIndex = ref(-1);
+const roomUsers = ref([]);
+const loading = ref(true);
 
-const activeTab = ref('public')
-const privateConversations = ref([])
-const currentPrivateConversation = ref(null)
-const currentPrivateMessages = ref([])
-const showMentionDropdown = ref(false)
-const mentionUsers = ref([])
-const selectedMentionIndex = ref(0)
-const mentionStartIndex = ref(-1)
-const roomUsers = ref([])
-
-const canManageUsers = computed(() => room.created_by === user.id)
+// Computed
+const roomSlug = computed(() => route.params.slug);
+const canManageUsers = computed(() => currentRoom.value?.created_by === user.value?.id);
 
 const getPlaceholderText = computed(() =>
   activeTab.value === 'public'
     ? 'Digite @ para mencionar usuários...'
-    : currentPrivateConversation.value
+    : currentConversation.value
     ? 'Digite sua mensagem...'
     : 'Selecione uma conversa'
-)
+);
 
 const btnActivePublic = computed(() =>
   activeTab.value === 'public'
     ? 'px-3 py-2 rounded text-sm font-medium bg-blue-500 text-white'
     : 'px-3 py-2 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300'
-)
+);
+
 const btnActivePriv = computed(() =>
   activeTab.value === 'private'
     ? 'px-3 py-2 rounded text-sm font-medium bg-blue-500 text-white'
     : 'px-3 py-2 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300'
-)
+);
 
-const msgSent =
-  'self-end bg-blue-500 text-white'
-const msgRecv =
-  'self-start bg-gray-100 text-gray-900'
+const msgSent = 'self-end bg-blue-500 text-white';
+const msgRecv = 'self-start bg-gray-100 text-gray-900';
 
-// Funções: loadPrivateConversations(), loadRoomUsers(), selectPrivateConversation(), switchToPublic(), handleInput(), handleKeydown(), selectMention(), scrollToBottom(), sendMessage(), cancelEdit(), updateMessage(), deleteMessage(), leaveRoom(), formatTime(), formatDate(), cleanupEcho(), setupEchoListeners()
-// (mesmo código original, mas ajuste chamadas router.post() para axios.post() e navegação via router.push() quando necessário)
-
-async function loadPrivateConversations() {
+// Funções
+async function loadRoomData() {
+  loading.value = true;
   try {
-    const { data } = await axios.get('/chat/private-conversations')
-    privateConversations.value = data
-  } catch (e) {
-    console.error('Erro ao carregar conversas privadas:', e)
+    // Carrega dados da sala
+    await fetchRoomBySlug(roomSlug.value);
+
+    // Carrega mensagens da sala
+    await fetchMessages(roomSlug.value);
+
+    // Carrega conversas privadas
+    await fetchConversations();
+
+    // Carrega usuários da sala
+    await loadRoomUsers();
+
+    // Conecta WebSocket
+    setupWebSocket();
+
+  } catch (error) {
+    console.error('Erro ao carregar sala:', error);
+    router.push('/chat');
+  } finally {
+    loading.value = false;
   }
 }
 
 async function loadRoomUsers() {
   try {
-    const url = `/chat/rooms/${room.slug}/available-users`
-    const { data } = await axios.get(url)
-    roomUsers.value = data.filter((u) => u.id !== user.id)
-  } catch (e) {
-    roomUsers.value = room.users.filter((u) => u.id !== user.id)
+    const response = await RoomService.getMembers(roomSlug.value);
+    roomUsers.value = response.data.filter(u => u.id !== user.value?.id);
+  } catch (error) {
+    console.error('Erro ao carregar usuários:', error);
+    roomUsers.value = currentRoom.value?.users?.filter(u => u.id !== user.value?.id) || [];
   }
 }
 
+function setupWebSocket() {
+  if (!user.value) return;
+
+  const token = localStorage.getItem('chat_token');
+  if (!token) return;
+
+  // Conecta ao WebSocket
+  const echo = connect(token);
+  if (!echo) return;
+
+  // Join no canal da sala
+  joinRoom(roomSlug.value, {
+    onMessageSent: (event) => {
+      if (!messages.value.some(m => m.id === event.message.id)) {
+        addMessage(event.message);
+        if (activeTab.value === 'public') {
+          scrollToBottom();
+        }
+      }
+    },
+    onMessageUpdated: (event) => {
+      updateMessageInList(event.message);
+    },
+    onMessageDeleted: (event) => {
+      removeMessage(event.message.id);
+    }
+  });
+
+  // Join no canal do usuário (para mensagens privadas)
+  joinUserChannel(user.value.id, {
+    onPrivateMessage: (event) => {
+      if (activeTab.value === 'private' &&
+          currentConversation.value?.id === event.message.conversation_id) {
+        addPrivateMessage(event.message);
+        scrollToBottom();
+      }
+      fetchConversations(); // Refresh da lista
+    }
+  });
+
+  connectionStatus.value = 'connected';
+}
+
 async function selectPrivateConversation(conversation) {
-  currentPrivateConversation.value = conversation
   try {
-    const { data } = await axios.get(`/chat/private-conversations/${conversation.id}`)
-    currentPrivateMessages.value = data.messages
-    await nextTick()
-    scrollToBottom()
-  } catch (e) {
-    console.error(e)
+    await openConversation(conversation.id);
+    scrollToBottom();
+  } catch (error) {
+    console.error('Erro ao abrir conversa:', error);
   }
 }
 
 function switchToPublic() {
-  activeTab.value = 'public'
-  currentPrivateConversation.value = null
-  currentPrivateMessages.value = []
-  nextTick(scrollToBottom)
+  activeTab.value = 'public';
+  scrollToBottom();
 }
 
 function handleInput() {
-  if (activeTab.value !== 'public') return
-  const input = messageInput.value
-  if (!input) return
-  const val = input.value
-  const pos = input.selectionStart
-  let start = -1
+  if (activeTab.value !== 'public') return;
+
+  const input = messageInput.value;
+  if (!input) return;
+
+  const val = input.value;
+  const pos = input.selectionStart;
+  let start = -1;
+
   for (let i = pos - 1; i >= 0; i--) {
     if (val[i] === '@') {
-      start = i
-      break
+      start = i;
+      break;
     }
-    if (val[i] === ' ') break
+    if (val[i] === ' ') break;
   }
+
   if (start !== -1) {
-    mentionStartIndex.value = start
-    const term = val.substring(start + 1, pos).toLowerCase()
-    mentionUsers.value = roomUsers.value.filter(
-      (u) =>
-        u.name.toLowerCase().includes(term) ||
-        u.email.toLowerCase().includes(term)
-    )
-    showMentionDropdown.value = mentionUsers.value.length > 0
-    selectedMentionIndex.value = 0
+    mentionStartIndex.value = start;
+    const term = val.substring(start + 1, pos).toLowerCase();
+    mentionUsers.value = roomUsers.value.filter(u =>
+      u.name.toLowerCase().includes(term) ||
+      u.email.toLowerCase().includes(term)
+    );
+    showMentionDropdown.value = mentionUsers.value.length > 0;
+    selectedMentionIndex.value = 0;
   } else {
-    showMentionDropdown.value = false
-    mentionUsers.value = []
+    showMentionDropdown.value = false;
+    mentionUsers.value = [];
   }
 }
 
 function handleKeydown(e) {
-  if (!showMentionDropdown.value) return
+  if (!showMentionDropdown.value) return;
+
   if (e.key === 'ArrowDown') {
-    e.preventDefault()
+    e.preventDefault();
     selectedMentionIndex.value = Math.min(
       selectedMentionIndex.value + 1,
       mentionUsers.value.length - 1
-    )
+    );
   } else if (e.key === 'ArrowUp') {
-    e.preventDefault()
-    selectedMentionIndex.value = Math.max(selectedMentionIndex.value - 1, 0)
+    e.preventDefault();
+    selectedMentionIndex.value = Math.max(selectedMentionIndex.value - 1, 0);
   } else if (e.key === 'Enter' && showMentionDropdown.value) {
-    e.preventDefault()
-    selectMention(mentionUsers.value[selectedMentionIndex.value])
-  } else if (e.key === 'Escape') showMentionDropdown.value = false
+    e.preventDefault();
+    selectMention(mentionUsers.value[selectedMentionIndex.value]);
+  } else if (e.key === 'Escape') {
+    showMentionDropdown.value = false;
+  }
 }
 
 async function selectMention(u) {
-  const input = messageInput.value
-  const beforeMention = newMessage.value.substring(0, mentionStartIndex.value)
-  const afterCursor = newMessage.value.substring(input.selectionStart)
-  newMessage.value = beforeMention + '@' + u.name + ' ' + afterCursor
+  const input = messageInput.value;
+  const beforeMention = newMessage.value.substring(0, mentionStartIndex.value);
+  const afterCursor = newMessage.value.substring(input.selectionStart);
+  newMessage.value = beforeMention + '@' + u.name + ' ' + afterCursor;
+
   nextTick(() => {
-    const newPosition = beforeMention.length + u.name.length + 2
-    input.setSelectionRange(newPosition, newPosition)
-  })
+    const newPosition = beforeMention.length + u.name.length + 2;
+    input.setSelectionRange(newPosition, newPosition);
+  });
 
   try {
-    const { data } = await axios.post('/chat/private-conversations', { user_id: u.id })
-    await loadPrivateConversations()
-    activeTab.value = 'private'
-    currentPrivateConversation.value = data
-    currentPrivateMessages.value = data.messages || []
-    scrollToBottom()
-  } catch (e) {}
-  showMentionDropdown.value = false
-  mentionUsers.value = []
+    const conversation = await startConversation(u.id);
+    await fetchConversations();
+    activeTab.value = 'private';
+    await openConversation(conversation.id);
+    scrollToBottom();
+  } catch (error) {
+    console.error('Erro ao iniciar conversa:', error);
+  }
+
+  showMentionDropdown.value = false;
+  mentionUsers.value = [];
 }
 
 function scrollToBottom() {
   nextTick(() => {
-    if (messagesContainer.value) messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
-  })
+    if (messagesContainer.value) {
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+    }
+  });
 }
 
 async function sendMessage() {
-  if (!newMessage.value.trim()) return
-  isSending.value = true
+  if (!newMessage.value.trim()) return;
+
+  isSending.value = true;
   try {
     if (activeTab.value === 'public') {
-      await axios.post(`/chat/rooms/${room.slug}/messages`, { content: newMessage.value })
-      newMessage.value = ''
-      await nextTick()
-      scrollToBottom()
-    } else if (currentPrivateConversation.value) {
-      await axios.post(`/chat/private-conversations/${currentPrivateConversation.value.id}/messages`, { content: newMessage.value })
-      await loadPrivateConversations()
-      newMessage.value = ''
-      await nextTick()
-      scrollToBottom()
+      await sendRoomMessage(roomSlug.value, newMessage.value);
+    } else if (currentConversation.value) {
+      await sendPrivateMessage(currentConversation.value.id, newMessage.value);
     }
-  } catch (e) {
-    console.error(e)
+
+    newMessage.value = '';
+    scrollToBottom();
+  } catch (error) {
+    console.error('Erro ao enviar mensagem:', error);
+    alert('Erro ao enviar mensagem');
   } finally {
-    isSending.value = false
-  }
-}
-
-function cancelEdit() {
-  editingMessage.value = null
-  editMessageContent.value = ''
-}
-
-async function updateMessage() {
-  if (!editMessageContent.value.trim()) return
-  isSending.value = true
-  try {
-    if(!editingMessage.value) return;
-    await axios.put(`/chat/messages/${editingMessage.value.id}`, { content: editMessageContent.value })
-    cancelEdit()
-  } catch (e) {
-    console.error(e)
-  } finally {
-    isSending.value = false
-  }
-}
-
-async function deleteMessage(id) {
-  if (!confirm('Confirma?')) return
-  try {
-    await axios.delete(`/chat/messages/${id}`)
-    const idx = localMessages.value.findIndex(m => m.id === id)
-    if(idx > -1) localMessages.value.splice(idx, 1)
-  } catch (e) {
-    console.error(e)
+    isSending.value = false;
   }
 }
 
 async function leaveRoom() {
-  if (!confirm('Confirma saída?')) return
+  if (!confirm('Tem certeza que deseja sair desta sala?')) return;
+
   try {
-    await axios.delete(`/chat/rooms/${room.slug}/leave`)
-    router.push('/dashboard')
-  } catch (e) {
-    console.error(e)
+    await RoomService.leave(roomSlug.value);
+    router.push('/chat');
+  } catch (error) {
+    console.error('Erro ao sair da sala:', error);
   }
 }
 
-function formatTime(t) {
-  return new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+function formatTime(timestamp) {
+  return new Date(timestamp).toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 
-function formatDate(t) {
-  return new Date(t).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+function formatDate(timestamp) {
+  return new Date(timestamp).toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
 }
 
-let echoChannel = null
-let privateEchoChannel = null
-
-function cleanupEcho() {
-  if (echoChannel) {
-    window.Echo.leave(`room.${room.slug}`)
-    echoChannel = null
+// Watchers
+watch(() => route.params.slug, async (newSlug) => {
+  if (newSlug) {
+    activeTab.value = 'public';
+    await loadRoomData();
   }
-  if (privateEchoChannel) {
-    window.Echo.leave(`user.${user.id}`)
-    privateEchoChannel = null
-  }
-}
+});
 
-function setupEchoListeners() {
-  if (!window.Echo) return
-  echoChannel = window.Echo.private(`room.${room.slug}`).listen('.message.sent', (e) => {
-    if (!localMessages.value.some((m) => m.id === e.id)) {
-      localMessages.value.push(e)
-      if (activeTab.value === 'public') scrollToBottom()
-    }
-  })
-  privateEchoChannel = window.Echo.private(`user.${user.id}`).listen('.private-message-sent', (e) => {
-    if (activeTab.value === 'private' && currentPrivateConversation.value?.id === e.message.conversation_id) {
-      currentPrivateMessages.value.push(e.message)
-      scrollToBottom()
-    }
-    loadPrivateConversations()
-  })
-}
-
-watch(
-  () => room.slug,
-  async () => {
-    activeTab.value = 'public'
-    currentPrivateConversation.value = null
-    currentPrivateMessages.value = []
-    await loadPrivateConversations()
-    await loadRoomUsers()
-    cleanupEcho()
-    setupEchoBearer()
-  }
-)
-
+// Lifecycle
 onMounted(async () => {
-  localMessages.value = messages.map((m) => ({ ...m }))
-  scrollToBottom()
-  await loadPrivateConversations()
-  await loadRoomUsers()
-  cleanupEcho()
-  setupEchoBearer()
-})
+  await loadRoomData();
+  scrollToBottom();
+});
 
 onUnmounted(() => {
-  cleanupEcho()
-})
+  disconnect();
+});
 </script>
+
 <template>
-    <ChatLayout :title="`Sala: ${room.name}`">
-        <div class="bg-blue-50 py-12">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-                <div class="bg-white overflow-hidden shadow-xl sm:rounded-lg">
-                    <!-- Header da sala -->
-                    <div class="p-6 border-b border-gray-200">
-                        <h2 class="text-2xl font-bold text-gray-900">
-                            <span v-if="activeTab === 'public'">{{ room.name }}</span>
-                            <span v-else-if="currentPrivateConversation">{{ currentPrivateConversation.other_user.name
-                                }}</span>
-                            <span v-else>Chat Privado</span>
-                        </h2>
-                        <p v-if="room.description && activeTab === 'public'" class="text-gray-600 mt-1">
-                            {{ room.description }}</p>
-                        <div class="flex items-center mt-2 space-x-4">
-                            <span v-if="activeTab === 'public'" class="text-sm text-gray-500">
-                                {{ room.users.length }} {{ room.users.length === 1 ? 'usuário' : 'usuários' }}
-                            </span>
-                            <span v-if="room.is_private && activeTab === 'public'"
-                                  class="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">Privada</span>
-                            <span v-else-if="activeTab === 'public'"
-                                  class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Pública</span>
-                            <span
-                                :class="connectionStatus === 'connected' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'"
-                                class="px-2 py-1 text-xs rounded-full">
-                                {{ connectionStatus === 'connected' ? '🟢 Online' : '🔴 Offline' }}
-                            </span>
-                        </div>
-                    </div>
+  <ChatLayout :title="currentRoom ? `Sala: ${currentRoom.name}` : 'Carregando...'">
+    <!-- Loading state -->
+    <div v-if="loading" class="flex items-center justify-center h-96">
+      <div class="text-center">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+        <p class="text-gray-600">Carregando sala...</p>
+      </div>
+    </div>
 
-                    <div class="flex">
-                        <!-- Sidebar -->
-                        <div class="w-1/4 bg-gray-50 border-r border-gray-200">
-                            <div class="p-4 border-b"><h2 class="text-black text-lg font-semibold">Conversas</h2></div>
-                            <div class="p-4 border-b flex space-x-2">
-                                <button @click="switchToPublic" :class="btnActivePublic">Chat Público</button>
-                                <button @click="activeTab = 'private'" :class="btnActivePriv">Chats Privados</button>
-                            </div>
-                            <div v-if="activeTab === 'private'" class="overflow-y-auto max-h-96">
-                                <div v-for="conv in privateConversations" :key="conv.id"
-                                     @click="selectPrivateConversation(conv)"
-                                     :class="['p-4 border-b cursor-pointer hover:bg-gray-100', currentPrivateConversation?.id === conv.id ? 'bg-blue-50' : '']">
-                                    <div class="flex items-center">
-                                        <div
-                                            class="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white mr-3">
-                                            {{ conv.other_user.name.charAt(0).toUpperCase() }}
-                                        </div>
-                                        <div>
-                                            <h3 class="font-medium text-sm">{{ conv.other_user.name }}</h3>
-                                            <p v-if="conv.latest_message" class="text-xs text-gray-500 truncate">
-                                                {{ conv.latest_message.content }}
-                                            </p>
-                                            <p v-else class="text-xs text-gray-400 italic">Nenhuma mensagem ainda</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div v-if="privateConversations.length === 0"
-                                     class="p-4 text-center text-gray-500 text-sm">
-                                    Nenhuma conversa privada ainda.<br>Digite @ no chat público para iniciar.
-                                </div>
-                            </div>
-                            <div v-if="activeTab === 'public'" class="p-4 text-center text-gray-500 text-sm">
-                                Chat público ativo<br>Digite @ para mencionar usuários
-                            </div>
-                        </div>
-
-                        <!-- Área do chat -->
-                        <div class="flex-1 flex flex-col h-96">
-                            <div ref="messagesContainer" class="flex-1 overflow-y-auto p-6 space-y-4">
-                                <!-- Mensagens públicas -->
-                                <template v-if="activeTab === 'public'">
-                                    <div
-                                        v-for="m in localMessages"
-                                        :key="m.id"
-                                        class="flex flex-col"
-                                    >
-                                        <div
-                                            :class="m.user.id === user.id ? msgSent : msgRecv"
-                                            class="max-w-xs md:max-w-sm lg:max-w-md rounded-lg shadow px-4 py-2"
-                                        >
-                                            <div class="flex items-center space-x-2 mb-1">
-                                                <span class="text-xs font-semibold">{{ m.user.name }}</span>
-                                                <span class="text-[10px] font-bold">
-              {{ formatDate(m.created_at) }} - {{ formatTime(m.created_at) }}
-            </span>
-                                                <span v-if="m.edited_at" class="text-[10px] text-gray-400">(editada)</span>
-                                            </div>
-                                            <p class="text-sm break-words">{{ m.content }}</p>
-                                        </div>
-                                    </div>
-                                </template>
-
-                                <!-- Mensagens privadas -->
-                                <template v-if="activeTab === 'private' && currentPrivateConversation">
-                                    <div
-                                        v-for="m in currentPrivateMessages"
-                                        :key="m.id"
-                                        class="flex flex-col"
-                                    >
-                                        <div
-                                            :class="m.sender.id === user.id ? msgSent : msgRecv"
-                                            class="max-w-xs md:max-w-sm lg:max-w-md rounded-lg shadow px-4 py-2"
-                                        >
-                                            <div class="flex items-center space-x-2 mb-1">
-                                                <span class="text-xs font-semibold">{{ m.sender.name }}</span>
-                                                <span class="text-[10px] font-bold">
-              {{ formatDate(m.created_at) }} - {{ formatTime(m.created_at) }}
-            </span>
-                                                <span v-if="m.is_edited" class="text-[10px] text-gray-400">(editada)</span>
-                                            </div>
-                                            <p class="text-sm break-words">{{ m.content }}</p>
-                                        </div>
-                                    </div>
-                                </template>
-
-                                <!-- Placeholder sem conversa privada selecionada -->
-                                <div
-                                    v-if="activeTab === 'private' && !currentPrivateConversation"
-                                    class="flex items-center justify-center h-full text-gray-500"
-                                >
-                                    <div class="text-center">
-                                        <p class="text-lg mb-2">💬</p>
-                                        <p>Selecione uma conversa</p>
-                                        <p class="text-sm">Ou digite @ no público</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Formulário de envio -->
-                            <div class="border-t p-4 bg-white">
-                                <form @submit.prevent="sendMessage" class="flex space-x-2">
-                                    <div class="flex-1 relative">
-                                        <input
-                                            ref="messageInput"
-                                            v-model="newMessage"
-                                            @input="handleInput"
-                                            @keydown="handleKeydown"
-                                            :placeholder="getPlaceholderText"
-                                            class="w-full text-black px-3 py-4 border rounded-md focus:ring-2 focus:ring-blue-500"
-                                            :disabled="isSending || (activeTab === 'private' && !currentPrivateConversation)"
-                                        />
-                                        <div
-                                            v-if="showMentionDropdown && mentionUsers.length"
-                                            class="absolute bottom-full left-0 right-0 bg-white border shadow-lg max-h-48 overflow-y-auto z-10 mb-1"
-                                        >
-                                            <div
-                                                v-for="(u, i) in mentionUsers"
-                                                :key="u.id"
-                                                @click="selectMention(u)"
-                                                :class="['p-3 hover:bg-gray-50 cursor-pointer', selectedMentionIndex === i ? 'bg-blue-50' : '']"
-                                            >
-                                                <div class="flex items-center">
-                                                    <div
-                                                        class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white mr-3"
-                                                    >
-                                                        {{ u.name.charAt(0).toUpperCase() }}
-                                                    </div>
-                                                    <div>
-                                                        <p class="font-medium text-sm">{{ u.name }}</p>
-                                                        <p class="text-xs text-gray-500">{{ u.email }}</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <button
-                                        type="submit"
-                                        :disabled="!newMessage.trim() || isSending || (activeTab === 'private' && !currentPrivateConversation)"
-                                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                                    >
-                                        {{ isSending ? 'Enviando...' : 'Enviar' }}
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-
-
-                        <!-- Gerenciamento de usuários da sala -->
-                        <div v-if="showUserManager && canManageUsers && activeTab === 'public'"
-                             class="w-80 border-l border-gray-200">
-                            <RoomUserManager :room="room" />
-                        </div>
-                    </div>
-                </div>
+    <!-- Main content -->
+    <div v-else-if="currentRoom" class="bg-blue-50 py-12">
+      <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+        <div class="bg-white overflow-hidden shadow-xl sm:rounded-lg">
+          <!-- Header da sala -->
+          <div class="p-6 border-b border-gray-200">
+            <h2 class="text-2xl font-bold text-gray-900">
+              <span v-if="activeTab === 'public'">{{ currentRoom.name }}</span>
+              <span v-else-if="currentConversation">{{ currentConversation.other_user.name }}</span>
+              <span v-else>Chat Privado</span>
+            </h2>
+            <p v-if="currentRoom.description && activeTab === 'public'" class="text-gray-600 mt-1">
+              {{ currentRoom.description }}
+            </p>
+            <div class="flex items-center mt-2 space-x-4">
+              <span v-if="activeTab === 'public'" class="text-sm text-gray-500">
+                {{ currentRoom.users_count || 0 }} {{ (currentRoom.users_count || 0) === 1 ? 'usuário' : 'usuários' }}
+              </span>
+              <span v-if="currentRoom.is_private && activeTab === 'public'"
+                    class="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">Privada</span>
+              <span v-else-if="activeTab === 'public'"
+                    class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Pública</span>
+              <span
+                :class="connectionStatus === 'connected' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'"
+                class="px-2 py-1 text-xs rounded-full">
+                {{ connectionStatus === 'connected' ? '🟢 Online' : '🔴 Offline' }}
+              </span>
             </div>
+          </div>
+
+          <div class="flex">
+            <!-- Sidebar -->
+            <div class="w-1/4 bg-gray-50 border-r border-gray-200">
+              <div class="p-4 border-b">
+                <h2 class="text-black text-lg font-semibold">Conversas</h2>
+              </div>
+              <div class="p-4 border-b flex space-x-2">
+                <button @click="switchToPublic" :class="btnActivePublic">Chat Público</button>
+                <button @click="activeTab = 'private'" :class="btnActivePriv">Chats Privados</button>
+              </div>
+
+              <!-- Lista de conversas privadas -->
+              <div v-if="activeTab === 'private'" class="overflow-y-auto max-h-96">
+                <div v-for="conv in conversations" :key="conv.id"
+                     @click="selectPrivateConversation(conv)"
+                     :class="['p-4 border-b cursor-pointer hover:bg-gray-100',
+                              currentConversation?.id === conv.id ? 'bg-blue-50' : '']">
+                  <div class="flex items-center">
+                    <div class="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white mr-3">
+                      {{ conv.other_user.name.charAt(0).toUpperCase() }}
+                    </div>
+                    <div>
+                      <h3 class="font-medium text-sm">{{ conv.other_user.name }}</h3>
+                      <p v-if="conv.latest_message" class="text-xs text-gray-500 truncate">
+                        {{ conv.latest_message.content }}
+                      </p>
+                      <p v-else class="text-xs text-gray-400 italic">Nenhuma mensagem ainda</p>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="conversations.length === 0" class="p-4 text-center text-gray-500 text-sm">
+                  Nenhuma conversa privada ainda.<br>Digite @ no chat público para iniciar.
+                </div>
+              </div>
+
+              <!-- Info do chat público -->
+              <div v-if="activeTab === 'public'" class="p-4 text-center text-gray-500 text-sm">
+                Chat público ativo<br>Digite @ para mencionar usuários
+              </div>
+            </div>
+
+            <!-- Área do chat -->
+            <div class="flex-1 flex flex-col h-96">
+              <div ref="messagesContainer" class="flex-1 overflow-y-auto p-6 space-y-4">
+                <!-- Mensagens públicas -->
+                <template v-if="activeTab === 'public'">
+                  <div v-for="message in messages" :key="message.id" class="flex flex-col">
+                    <div :class="message.user.id === user.id ? msgSent : msgRecv"
+                         class="max-w-xs md:max-w-sm lg:max-w-md rounded-lg shadow px-4 py-2">
+                      <div class="flex items-center space-x-2 mb-1">
+                        <span class="text-xs font-semibold">{{ message.user.name }}</span>
+                        <span class="text-[10px] font-bold">
+                          {{ formatDate(message.created_at) }} - {{ formatTime(message.created_at) }}
+                        </span>
+                        <span v-if="message.edited_at" class="text-[10px] text-gray-400">(editada)</span>
+                      </div>
+                      <p class="text-sm break-words">{{ message.content }}</p>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- Mensagens privadas -->
+                <template v-if="activeTab === 'private' && currentConversation">
+                  <div v-for="message in privateMessages" :key="message.id" class="flex flex-col">
+                    <div :class="message.sender.id === user.id ? msgSent : msgRecv"
+                         class="max-w-xs md:max-w-sm lg:max-w-md rounded-lg shadow px-4 py-2">
+                      <div class="flex items-center space-x-2 mb-1">
+                        <span class="text-xs font-semibold">{{ message.sender.name }}</span>
+                        <span class="text-[10px] font-bold">
+                          {{ formatDate(message.created_at) }} - {{ formatTime(message.created_at) }}
+                        </span>
+                        <span v-if="message.is_edited" class="text-[10px] text-gray-400">(editada)</span>
+                      </div>
+                      <p class="text-sm break-words">{{ message.content }}</p>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- Placeholder sem conversa privada selecionada -->
+                <div v-if="activeTab === 'private' && !currentConversation"
+                     class="flex items-center justify-center h-full text-gray-500">
+                  <div class="text-center">
+                    <p class="text-lg mb-2">💬</p>
+                    <p>Selecione uma conversa</p>
+                    <p class="text-sm">Ou digite @ no público</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Formulário de envio -->
+              <div class="border-t p-4 bg-white">
+                <form @submit.prevent="sendMessage" class="flex space-x-2">
+                  <div class="flex-1 relative">
+                    <input
+                      ref="messageInput"
+                      v-model="newMessage"
+                      @input="handleInput"
+                      @keydown="handleKeydown"
+                      :placeholder="getPlaceholderText"
+                      class="w-full text-black px-3 py-4 border rounded-md focus:ring-2 focus:ring-blue-500"
+                      :disabled="isSending || (activeTab === 'private' && !currentConversation)"
+                    />
+
+                    <!-- Dropdown de menções -->
+                    <div v-if="showMentionDropdown && mentionUsers.length"
+                         class="absolute bottom-full left-0 right-0 bg-white border shadow-lg max-h-48 overflow-y-auto z-10 mb-1">
+                      <div v-for="(u, i) in mentionUsers" :key="u.id"
+                           @click="selectMention(u)"
+                           :class="['p-3 hover:bg-gray-50 cursor-pointer',
+                                    selectedMentionIndex === i ? 'bg-blue-50' : '']">
+                        <div class="flex items-center">
+                          <div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white mr-3">
+                            {{ u.name.charAt(0).toUpperCase() }}
+                          </div>
+                          <div>
+                            <p class="font-medium text-sm">{{ u.name }}</p>
+                            <p class="text-xs text-gray-500">{{ u.email }}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    :disabled="!newMessage.trim() || isSending || (activeTab === 'private' && !currentConversation)"
+                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {{ isSending ? 'Enviando...' : 'Enviar' }}
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
         </div>
-    </ChatLayout>
+      </div>
+    </div>
+
+    <!-- Error state -->
+    <div v-else class="flex items-center justify-center h-96">
+      <div class="text-center">
+        <p class="text-gray-600 mb-4">Sala não encontrada</p>
+        <button @click="router.push('/chat')"
+                class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+          Voltar ao Chat
+        </button>
+      </div>
+    </div>
+  </ChatLayout>
 </template>

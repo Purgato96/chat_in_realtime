@@ -1,145 +1,130 @@
-<template>
-  <AuthBase
-    title="Create an account"
-    description="Enter your details below to register"
-  >
-    <form @submit.prevent="submit" class="flex flex-col gap-6">
-      <div class="grid gap-6">
-        <!-- Name -->
-        <div class="grid gap-2">
-          <Label for="name">Name</Label>
-          <Input
-            id="name"
-            v-model="form.name"
-            type="text"
-            required
-            autofocus
-            :tabindex="1"
-            autocomplete="name"
-            placeholder="Full name"
-          />
-          <InputError :message="errors.name"/>
-        </div>
+<script setup>
+import { ref, reactive } from 'vue';
+import { useAuth } from '@/composables/useAuth';
+import { useRouter } from 'vue-router';
 
-        <!-- Email -->
-        <div class="grid gap-2">
-          <Label for="email">Email</Label>
-          <Input
-            id="email"
-            v-model="form.email"
-            type="email"
-            required
-            :tabindex="2"
-            autocomplete="email"
-            placeholder="email@example.com"
-          />
-          <InputError :message="errors.email"/>
-        </div>
-
-        <!-- Password -->
-        <div class="grid gap-2">
-          <Label for="password">Password</Label>
-          <Input
-            id="password"
-            v-model="form.password"
-            type="password"
-            required
-            :tabindex="3"
-            autocomplete="new-password"
-            placeholder="Password"
-          />
-          <InputError :message="errors.password"/>
-        </div>
-
-        <!-- Confirm Password -->
-        <div class="grid gap-2">
-          <Label for="password_confirmation">Confirm Password</Label>
-          <Input
-            id="password_confirmation"
-            v-model="form.password_confirmation"
-            type="password"
-            required
-            :tabindex="4"
-            autocomplete="new-password"
-            placeholder="Confirm password"
-          />
-          <InputError :message="errors.password_confirmation"/>
-        </div>
-
-        <!-- Submit -->
-        <Button type="submit" class="mt-2 w-full" tabindex="5" :disabled="form.processing">
-          <LoaderCircle v-if="form.processing" class="h-4 w-4 animate-spin"/>
-          Create account
-        </Button>
-      </div>
-
-      <!-- Already have account -->
-      <div class="text-center text-sm text-muted-foreground">
-        Already have an account?
-        <RouterLink
-          :to="login"
-          class="underline underline-offset-4"
-          :tabindex="6"
-        >
-          Log in
-        </RouterLink>
-      </div>
-    </form>
-  </AuthBase>
-</template>
-
-<script setup lang="ts">
-import {reactive, ref} from 'vue'
-import {useRouter, RouterLink} from 'vue-router'
-import api from '@/lib/axios.js' // axios configurado com token Bearer
-
-// UI components do starter kit
-import InputError from '@/components/InputError.vue'
-import {Input} from '@/components/ui/input'
-import {Label} from '@/components/ui/label'
-import {Button} from '@/components/ui/button'
-import AuthBase from '@/layouts/AuthLayout.vue'
-import {LoaderCircle} from 'lucide-vue-next'
-
-const router = useRouter()
+const { register, loading } = useAuth();
+const router = useRouter();
+const error = ref('');
 
 const form = reactive({
   name: '',
   email: '',
   password: '',
-  password_confirmation: '',
-})
+  password_confirmation: ''
+});
 
-const errors = reactive<Record<string, string>>({})
-const errorMessage = ref('')
-const processing = ref(false)
-const login = '/login'
+const handleSubmit = async () => {
+  error.value = '';
 
-async function submit() {
-  processing.value = true
-  errorMessage.value = ''
-  Object.keys(errors).forEach((k) => delete errors[k])
+  if (form.password !== form.password_confirmation) {
+    error.value = 'As senhas não coincidem';
+    return;
+  }
 
   try {
-    const res = await api.post('/auth/register', {
-      ...form,
-      device_name: 'web',
-    })
-
-    if (res.status === 201) {
-      router.push('/dashboard')
-    } else {
-      errorMessage.value = 'Registration failed'
-    }
-  } catch (err: any) {
-    if (err.response?.status === 422) {
-      Object.assign(errors, err.response.data.errors || {})
-    } else {
-      errorMessage.value =
-        err.response?.data?.message || 'Unexpected error occurred'
-    }
-  } finally {
-    processing.value = false
+    await register(form);
+    router.push('/chat');
+  } catch (err) {
+    error.value = err.response?.data?.message || 'Erro ao criar conta';
+    console.error('Erro no registro:', err);
   }
-}
+};
 </script>
+
+<template>
+  <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-md w-full space-y-8">
+      <div>
+        <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+          Criar conta
+        </h2>
+        <p class="mt-2 text-center text-sm text-gray-600">
+          Registre-se para começar a usar o chat
+        </p>
+      </div>
+
+      <form class="mt-8 space-y-6" @submit.prevent="handleSubmit">
+        <div class="space-y-4">
+          <div>
+            <label for="name" class="block text-sm font-medium text-gray-700">Nome</label>
+            <input
+              id="name"
+              v-model="form.name"
+              name="name"
+              type="text"
+              required
+              class="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              placeholder="Seu nome completo"
+              :disabled="loading"
+            />
+          </div>
+
+          <div>
+            <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
+            <input
+              id="email"
+              v-model="form.email"
+              name="email"
+              type="email"
+              autocomplete="email"
+              required
+              class="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              placeholder="seu@email.com"
+              :disabled="loading"
+            />
+          </div>
+
+          <div>
+            <label for="password" class="block text-sm font-medium text-gray-700">Senha</label>
+            <input
+              id="password"
+              v-model="form.password"
+              name="password"
+              type="password"
+              required
+              class="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              placeholder="••••••••"
+              :disabled="loading"
+            />
+          </div>
+
+          <div>
+            <label for="password_confirmation" class="block text-sm font-medium text-gray-700">Confirmar Senha</label>
+            <input
+              id="password_confirmation"
+              v-model="form.password_confirmation"
+              name="password_confirmation"
+              type="password"
+              required
+              class="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              placeholder="••••••••"
+              :disabled="loading"
+            />
+          </div>
+        </div>
+
+        <div v-if="error" class="text-red-600 text-sm text-center">
+          {{ error }}
+        </div>
+
+        <div>
+          <button
+            type="submit"
+            :disabled="loading"
+            class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+          >
+            {{ loading ? 'Criando conta...' : 'Criar conta' }}
+          </button>
+        </div>
+
+        <div class="text-center">
+          <span class="text-sm text-gray-600">Já tem conta? </span>
+          <router-link to="/login" class="font-medium text-indigo-600 hover:text-indigo-500">
+            Entrar
+          </router-link>
+        </div>
+      </form>
+    </div>
+  </div>
+</template>

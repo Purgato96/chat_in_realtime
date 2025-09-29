@@ -155,29 +155,32 @@ class RoomApiController extends Controller
      * Entrar em uma sala
      */
     public function join(Request $request, Room $room)
-    {
-        $user = $request->user();
+{
+    $user = $request->user();
 
-        if ($room->is_private) {
+    // Se a sala é privada, só entra quem for criador ou já estiver na pivot
+    if ($room->is_private && $room->created_by !== $user->id) {
+        if (!$room->users()->where('user_id', $user->id)->exists()) {
             return response()->json([
                 'error' => 'Acesso negado',
                 'message' => 'Esta sala é privada.'
             ], 403);
         }
-
-        if (!$room->users()->where('user_id', $user->id)->exists()) {
-            $room->users()->attach($user->id);
-        }
-
-        return response()->json([
-            'message' => 'Você entrou na sala com sucesso.',
-            'data' => [
-                'room_id' => $room->id,
-                'user_id' => $user->id,
-                'joined_at' => now()->toISOString()
-            ]
-        ]);
     }
+
+    if (!$room->users()->where('user_id', $user->id)->exists()) {
+        $room->users()->attach($user->id, ['joined_at' => now()]);
+    }
+
+    return response()->json([
+        'message' => 'Você entrou na sala com sucesso.',
+        'data' => [
+            'room_id' => $room->id,
+            'user_id' => $user->id,
+            'joined_at' => now()->toISOString()
+        ]
+    ]);
+}
 
     /**
      * Sair de uma sala

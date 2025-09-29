@@ -1,55 +1,63 @@
-<script setup lang="ts">
-import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
-import AppLayout from '@/layouts/AppLayout.vue'
-import api from '@/lib/axios.js'  // axios configurado para sua API
+<script setup>
+import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { useRooms } from '@/composables/useRooms'
+import { useAuth } from '@/composables/useAuth';
+import AppLayout from '@/layouts/AppLayout.vue';
 
-const props = defineProps({
-  rooms: Array
-})
+const router = useRouter();
+const { rooms, loading, fetchRooms, createRoom } = useRooms();
+const { user } = useAuth();
 
-const router = useRouter()
-const showCreateModal = ref(false)
-const processing = ref(false)
+const showCreateModal = ref(false);
+const processing = ref(false);
 
-const form = reactive({
+const form = ref({
   name: '',
   description: '',
   is_private: false
-})
+});
 
-const createRoom = async () => {
-  processing.value = true
+const handleCreateRoom = async () => {
+  processing.value = true;
   try {
-    const response = await api.post('/v1/rooms', form)
-    // Fecha o modal e limpa form ao criar com sucesso
-    showCreateModal.value = false
-    form.name = ''
-    form.description = ''
-    form.is_private = false
+    await createRoom(form.value);
 
-    // Atualiza lista de salas, por exemplo você pode emitir evento ou atualizar chamando API
-    router.go(0) // simples recarregar a página/rota
+    // Reset form e fecha modal
+    form.value = {
+      name: '',
+      description: '',
+      is_private: false
+    };
+    showCreateModal.value = false;
+
+    // Refresh da lista não é necessário, o composable já atualiza
   } catch (error) {
-    // Trate error aqui como quiser, por exemplo alert
-    alert('Erro ao criar sala: ' + (error.response?.data.message || error.message))
+    console.error('Erro ao criar sala:', error);
+    alert('Erro ao criar sala: ' + (error.response?.data?.message || error.message));
   } finally {
-    processing.value = false
+    processing.value = false;
   }
-}
+};
 
 const formatDate = (date) => {
+  if (!date) return '';
   return new Date(date).toLocaleString('pt-BR', {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
     minute: '2-digit'
-  })
-}
+  });
+};
 
 const goToRoom = (slug) => {
-  router.push({ name: 'chat-room', params: { slug } })
-}
+  router.push({ name: 'chat-room', params: { slug } });
+};
+
+// ✅ IMPORTANTE: Carrega as salas na montagem
+onMounted(() => {
+  fetchRooms();
+});
 </script>
 
 <template>
@@ -75,8 +83,14 @@ const goToRoom = (slug) => {
               </button>
             </div>
 
+            <!-- Loading -->
+            <div v-if="loading" class="text-center py-8">
+              <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+              <p class="mt-2 text-gray-600">Carregando salas...</p>
+            </div>
+
             <!-- Lista de salas -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div
                 v-for="room in rooms"
                 :key="room.id"
@@ -89,30 +103,28 @@ const goToRoom = (slug) => {
                 <div class="flex items-center justify-between text-xs text-gray-500">
                   <span>{{ room.users_count || 0 }} membros</span>
                   <span v-if="room.latest_messages?.length">
-                    Última mensagem: {{ formatDate(room.latest_messages[0].created_at) }}
+                    Última: {{ formatDate(room.latest_messages.created_at) }}
                   </span>
                 </div>
               </div>
             </div>
 
             <!-- Estado vazio -->
-            <template v-if="rooms.length === 0">
-              <div class="text-center py-12">
-                <div class="text-gray-500 mb-4">
-                  <svg class="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.001 8.001 0 01-7.003-4.165L2 20l4.165-4.003A8.001 8.001 0 0112 4c4.418 0 8 3.582 8 8z" />
-                  </svg>
-                </div>
-                <h3 class="text-lg font-medium text-gray-900 mb-2">Nenhuma sala encontrada</h3>
-                <p class="text-gray-500 mb-4">Crie sua primeira sala de chat para começar.</p>
-                <button
-                  @click="showCreateModal = true"
-                  class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-                >
-                  Criar Primeira Sala
-                </button>
+            <div v-if="!loading && rooms.length === 0" class="text-center py-12">
+              <div class="text-gray-500 mb-4">
+                <svg class="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.001 8.001 0 01-7.003-4.165L2 20l4.165-4.003A8.001 8.001 0 0112 4c4.418 0 8 3.582 8 8z" />
+                </svg>
               </div>
-            </template>
+              <h3 class="text-lg font-medium text-gray-900 mb-2">Nenhuma sala encontrada</h3>
+              <p class="text-gray-500 mb-4">Crie sua primeira sala de chat para começar.</p>
+              <button
+                @click="showCreateModal = true"
+                class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+              >
+                Criar Primeira Sala
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -124,7 +136,7 @@ const goToRoom = (slug) => {
         <div class="mt-3">
           <h3 class="text-lg font-medium text-gray-900 mb-4">Criar Nova Sala</h3>
 
-          <form @submit.prevent="createRoom">
+          <form @submit.prevent="handleCreateRoom">
             <div class="mb-4">
               <label class="block text-gray-700 text-sm font-bold mb-2">
                 Nome da Sala
@@ -134,6 +146,7 @@ const goToRoom = (slug) => {
                 type="text"
                 class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                 required
+                :disabled="processing"
               >
             </div>
 
@@ -145,6 +158,7 @@ const goToRoom = (slug) => {
                 v-model="form.description"
                 class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                 rows="3"
+                :disabled="processing"
               ></textarea>
             </div>
 
@@ -154,6 +168,7 @@ const goToRoom = (slug) => {
                   v-model="form.is_private"
                   type="checkbox"
                   class="form-checkbox h-4 w-4 text-blue-600"
+                  :disabled="processing"
                 >
                 <span class="ml-2 text-gray-700">Sala privada</span>
               </label>
@@ -164,6 +179,7 @@ const goToRoom = (slug) => {
                 type="button"
                 @click="showCreateModal = false"
                 class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded"
+                :disabled="processing"
               >
                 Cancelar
               </button>

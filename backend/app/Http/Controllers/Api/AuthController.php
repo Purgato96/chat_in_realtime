@@ -3,7 +3,7 @@
 /**
  * Endpoints de autenticação da API.
  * Responsável por login, registro e
- * gerenciamento de tokens pessoais.
+ * gerenciamento de tokens JWT.
  */
 
 namespace App\Http\Controllers\Api;
@@ -17,93 +17,82 @@ use Spatie\Permission\Models\Role;
 
 class AuthController extends Controller {
     /**
-     * Login e criação de token
+     * Login e criação de token JWT
      */
     public function login(Request $request) {
-    $request->validate([
-        'email' => 'required|email',
-        'password' => 'required',
-    ]);
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required',
+        ]);
 
-    $credentials = $request->only('email', 'password');
+        $credentials = $request->only('email', 'password');
 
-    if (!$token = auth('api')->attempt($credentials)) {
-        throw ValidationException::withMessages([
-            'email' => ['As credenciais fornecidas estão incorretas.'],
+        if (!$token = auth('api')->attempt($credentials)) {
+            throw ValidationException::withMessages([
+                'email' => ['As credenciais fornecidas estão incorretas.'],
+            ]);
+        }
+
+        $user = auth('api')->user();
+
+        return response()->json([
+            'user' => $user,
+            'token' => $token,
         ]);
     }
-
-    $user = auth('api')->user();
-
-    return response()->json([
-        'user' => $user,
-        'token' => $token,
-    ]);
-}
 
     /**
      * Registro de novo usuário
      */
     public function register(Request $request) {
-    $request->validate([
-        'name' => 'required|string|max:255',
-        'email' => 'required|string|email|max:255|unique:users',
-        'password' => 'required|string|min:8|confirmed',
-    ]);
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
 
-    $user = User::create([
-        'name' => $request->name,
-        'email' => $request->email,
-        'password' => Hash::make($request->password),
-    ]);
+        $user = User::create([
+            'name' => $request->name,
+            'email' => $request->email,
+            'password' => Hash::make($request->password),
+        ]);
 
-    $roleUser = Role::firstOrCreate(['name' => 'user']);
-    $user->assignRole($roleUser);
+        $roleUser = Role::firstOrCreate(['name' => 'user']);
+        $user->assignRole($roleUser);
 
-    // Cria o token JWT para o usuário recém criado
-    $token = auth('api')->login($user);
-
-    return response()->json([
-        'user' => $user,
-        'token' => $token,
-    ], 201);
-}
-
-    /**
-     * Logout (revoga token atual)
-     */
-    public function logout() {
-    auth('api')->logout();
-    return response()->json(['message' => 'Token revogado com sucesso.']);
-}
-
-    /**
-     * Logout de todos os dispositivos
-     */
-    public function logoutAll(Request $request) {
-        $request->user()->tokens()->delete();
+        // JWT login automático após registro
+        $token = auth('api')->login($user);
 
         return response()->json([
-            'message' => 'Todos os tokens foram revogados.',
-        ]);
+            'user' => $user,
+            'token' => $token,
+        ], 201);
+    }
+
+    /**
+     * Logout (revoga token JWT atual)
+     */
+    public function logout() {
+        auth('api')->logout();
+        return response()->json(['message' => 'Token revogado com sucesso.']);
     }
 
     /**
      * Informações do usuário autenticado
      */
     public function me() {
-    return response()->json(auth('api')->user());
-}
+        return response()->json(auth('api')->user());
+    }
 
     /**
-     * Renovar token
+     * Renovar token JWT
      */
     public function refresh() {
-    $newToken = auth('api')->refresh();
+        $newToken = auth('api')->refresh();
 
-    return response()->json([
-        'token' => $newToken,
-        'user' => auth('api')->user(),
-    ]);
-}
+        return response()->json([
+            'token' => $newToken,
+            'user' => auth('api')->user(),
+        ]);
+    }
 }

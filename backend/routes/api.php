@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\ChatAutoLoginController;
 use App\Http\Controllers\Api\MessageApiController;
 use App\Http\Controllers\Api\PrivateConversationController;
 use App\Http\Controllers\Api\PrivateMessageController;
@@ -16,6 +17,9 @@ Route::prefix('v1')->name('api.')->group(function () {
     // Autenticação
     Route::post('/auth/login', [AuthController::class, 'login']);
     Route::post('/auth/register', [AuthController::class, 'register']);
+
+    // Auto login para iframe (Chatrace)
+    Route::post('/auth/auto-login', [ChatAutoLoginController::class, 'autoLogin']);
 
     // Salas públicas
     Route::get('/rooms', [RoomApiController::class, 'index']);
@@ -34,7 +38,6 @@ Route::prefix('v1')->name('api.')->group(function () {
 Route::prefix('v1')->name('api.')->middleware(['auth:api'])->group(function () {
     // Autenticação
     Route::post('/auth/logout', [AuthController::class, 'logout']);
-    Route::post('/auth/logout-all', [AuthController::class, 'logoutAll']);
     Route::post('/auth/refresh', [AuthController::class, 'refresh']);
     Route::get('/auth/me', [AuthController::class, 'me']);
 
@@ -42,7 +45,6 @@ Route::prefix('v1')->name('api.')->middleware(['auth:api'])->group(function () {
     Route::post('/rooms/{room:slug}/join', [RoomApiController::class, 'join']);
     Route::delete('/rooms/{room:slug}/leave', [RoomApiController::class, 'leave']);
     Route::get('/rooms/{room:slug}/members', [RoomApiController::class, 'members']);
-    Route::get('/rooms/{room:slug}/users', [RoomApiController::class, 'members']); // Alias
 
     // CRUD Salas
     Route::post('/rooms', [RoomApiController::class, 'store']);
@@ -66,21 +68,21 @@ Route::prefix('v1')->name('api.')->middleware(['auth:api'])->group(function () {
     Route::post('/private-conversations/{conversation}/messages', [PrivateMessageController::class, 'store']);
     Route::put('/private-conversations/{conversation}/messages/{message}', [PrivateMessageController::class, 'update']);
     Route::post('/private-conversations/{conversation}/messages/{message}/read', [PrivateMessageController::class, 'markAsRead']);
-});
 
-// =====================
-// Broadcasting auth (auth:api)
-// =====================
-Route::middleware(['auth:api'])->post('/broadcasting/auth', function (Request $request) {
-    return response()->json([
-        'auth' => optional($request->user())->id,
-    ]);
+    // =====================
+    // Broadcasting auth (auth:api)
+    // =====================
+    Route::middleware(['auth:api'])->post('/broadcasting/auth', function (Request $request) {
+        return response()->json([
+            'auth' => optional($request->user())->id,
+        ]);
+    });
 });
 
 // =====================
 // WebSocket endpoints auxiliares
 // =====================
-Route::prefix('v1')->group(function () {
+Route::prefix('v1')->middleware(['auth:api'])->group(function () {
     Route::post('/websocket/auth', [WebSocketAuthController::class, 'authenticate']);
     Route::get('/websocket/channels', [WebSocketAuthController::class, 'channels']);
     Route::get('/websocket/test', [WebSocketAuthController::class, 'test']);
@@ -98,15 +100,9 @@ Route::get('/v1/status', function () {
             'auth' => '/api/v1/auth/*',
             'rooms' => '/api/v1/rooms',
             'messages' => '/api/v1/rooms/{room}/messages',
-            'websocket' => config('broadcasting.connections.pusher.options.host'),
+            'private-conversations' => '/api/v1/private-conversations',
+            'websocket' => config('broadcasting.connections.pusher.options.host', 'ws://localhost:6001'),
         ]
-    ]);
-});
-
-Route::get('/v1/test', function (Request $request) {
-    return response()->json([
-        'auth_guard' => config('auth.defaults.guard'),
-        'user' => $request->user(),
     ]);
 });
 

@@ -7,16 +7,13 @@ use Exception;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\Room;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
-class ChatAutoLoginController extends Controller
-{
+class ChatAutoLoginController extends Controller {
     /**
-     * Autenticação automática para chat via parâmetros usando token Bearer Sanctum
+     * Autenticação automática para chat via parâmetros usando JWT
      */
-    public function autoLogin(Request $request)
-    {
+    public function autoLogin(Request $request) {
         $request->validate([
             'email' => 'required|email',
             'account_id' => 'required|string'
@@ -39,15 +36,13 @@ class ChatAutoLoginController extends Controller
                 ['email' => $email],
                 [
                     'name' => $email,
-                    'password' => bcrypt(Str::random(16))
+                    'password' => bcrypt(Str::random(16)),
+                    'account_id' => $accountId
                 ]
             );
 
-            // Autentica o usuário na sessão atual
-            Auth::login($user);
-
-            // Gera token pessoal para autenticação via Bearer Token
-            $token = $user->createToken('chat-access-token')->plainTextToken;
+            // Gera token JWT (remove Auth::login e createToken do Sanctum)
+            $token = auth('api')->login($user);
 
             // Cria ou busca sala
             $room = Room::firstOrCreate(
@@ -82,7 +77,7 @@ class ChatAutoLoginController extends Controller
                         'description' => $room->description
                     ],
                     'account_id' => $accountId,
-                    'redirect_to' => '/chat/room/' . $room->slug // Para o frontend usar
+                    'redirect_to' => '/chat/room/' . $room->slug
                 ]
             ]);
 
