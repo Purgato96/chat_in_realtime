@@ -1,5 +1,5 @@
-import { createRouter, createWebHistory } from 'vue-router';
-import { AuthService } from '@/services';
+import {createRouter, createWebHistory} from 'vue-router';
+import {authService as AuthService} from '@/services/AuthService';
 import Login from '@/pages/auth/Login.vue';
 import Register from '@/pages/auth/Register.vue';
 import Welcome from '@/views/Welcome.vue';
@@ -16,19 +16,19 @@ const routes = [
     path: '/welcome',
     name: 'welcome',
     component: Welcome,
-    meta: { requiresGuest: true }
+    meta: {requiresGuest: true}
   },
   {
     path: '/login',
     name: 'login',
     component: Login,
-    meta: { requiresGuest: true }
+    meta: {requiresGuest: true}
   },
   {
     path: '/register',
     name: 'register',
     component: Register,
-    meta: { requiresGuest: true }
+    meta: {requiresGuest: true}
   },
   {
     path: '/dashboard',
@@ -40,20 +40,35 @@ const routes = [
     path: '/chat',
     name: 'chat-index',
     component: ChatIndex,
-    meta: { requiresAuth: true }
+    meta: {requiresAuth: true}
   },
   {
     path: '/chat/room/:slug',
     name: 'chat-room',
     component: ChatRoom,
-    meta: { requiresAuth: true }
+    meta: {requiresAuth: true}
+  },
+  {
+    path: '/chat/login',
+    name: 'chat-login',
+    component: () => import('@/pages/auth/ChatLogin.vue'),
+    meta: {requiresGuest: true}
   },
   {
     path: '/logout',
     name: 'logout',
-    beforeEnter: async (to, from, next) => {
-      await AuthService.logout();
-      next('/login');
+    beforeEnter: async () => {
+      try {
+        await authService.backendLogout();
+      } catch {
+      }
+      localStorage.removeItem('chat_token');
+      localStorage.removeItem('user');
+      try {
+        window.Echo?.disconnect?.();
+      } catch {
+      }
+      window.location.replace('/login');
     }
   }
 ];
@@ -64,33 +79,20 @@ const router = createRouter({
 });
 
 // Guarda global para validar autenticação real
-router.beforeEach(async (to, from, next) => {
+router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('chat_token');
 
   if (to.meta.requiresAuth) {
-    if (!token) {
-      return next('/login');
-    }
-    try {
-      await AuthService.me(); // verifica se token é válido
-      return next();
-    } catch (error) {
-      localStorage.removeItem('chat_token');
-      return next('/login');
-    }
+    if (!token) return next('/login');
+    return next();
   }
 
   if (to.meta.requiresGuest && token) {
-    try {
-      await AuthService.me();
-      return next('/chat');
-    } catch {
-      localStorage.removeItem('chat_token');
-      return next();
-    }
+    return next('/chat');
   }
 
   return next();
 });
+
 
 export default router;

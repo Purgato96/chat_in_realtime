@@ -1,10 +1,5 @@
 <?php
 
-/**
- * Modelo das salas de chat. Controla os
- * relacionamentos com usuários e mensagens.
- */
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -57,5 +52,12 @@ class Room extends Model
     public function getRouteKeyName(): string
     {
         return 'slug';
+    }
+
+    public function userCanAccess(int $userId): bool
+    {
+        if (! $this->is_private) return true;
+        if ((int) $this->created_by === $userId) return true;
+        return $this->users()->where('user_id', $userId)->exists();
     }
 }

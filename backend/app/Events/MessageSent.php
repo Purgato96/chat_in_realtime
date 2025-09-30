@@ -1,36 +1,29 @@
 <?php
 
-/**
- * Evento broadcast quando uma mensagem é
- * enviada em uma sala. Utilizado para
- * atualizar clientes conectados em tempo real.
- */
-
 namespace App\Events;
 
 use App\Models\Message;
-use Illuminate\Broadcasting\Channel;
-use Illuminate\Broadcasting\PrivateChannel;  // ou use Channel se público
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow; // entrega imediata
 use Illuminate\Queue\SerializesModels;
 
-class MessageSent implements ShouldBroadcast
+class MessageSent implements ShouldBroadcastNow
 {
     use SerializesModels;
 
-    public $message;
-
-    public function __construct(Message $message)
+    public function __construct(public Message $message)
     {
-        $this->message = $message;
+        // Garante relações necessárias no payload
+        $this->message->loadMissing(['user', 'room']);
     }
 
-    public function broadcastOn()
+    public function broadcastOn(): array
     {
-        return new PrivateChannel('room.' . $this->message->room->slug);
+        // Sempre room.{slug}
+        return [new PrivateChannel('room.' . $this->message->room->slug)];
     }
 
-    public function broadcastAs()
+    public function broadcastAs(): string
     {
         return 'message.sent';
     }
@@ -38,14 +31,16 @@ class MessageSent implements ShouldBroadcast
     public function broadcastWith(): array
     {
         return [
-            'id' => $this->message->id,
-            'content' => $this->message->content,
-            'room_id' => $this->message->room_id,
-            'created_at' => $this->message->created_at,
-            'edited_at' => $this->message->edited_at,
-            'user' => [
-                'id' => $this->message->user->id,
-                'name' => $this->message->user->name,
+            'message' => [
+                'id' => $this->message->id,
+                'content' => $this->message->content,
+                'room_id' => $this->message->room_id,
+                'created_at' => optional($this->message->created_at)->toISOString(),
+                'edited_at' => optional($this->message->edited_at)->toISOString(),
+                'user' => [
+                    'id' => $this->message->user->id,
+                    'name' => $this->message->user->name,
+                ],
             ],
         ];
     }

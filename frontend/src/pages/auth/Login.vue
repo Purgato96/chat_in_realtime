@@ -1,9 +1,9 @@
 <script setup>
-import { ref, reactive } from 'vue';
-import { useAuth } from '@/composables/useAuth';
-import { useRouter } from 'vue-router';
+import {ref, reactive} from 'vue';
+import {useAuth} from '@/composables/useAuth';
+import {useRouter} from 'vue-router';
 
-const { login, loading } = useAuth();
+const {login, isLoading} = useAuth();
 const router = useRouter();
 const error = ref('');
 
@@ -13,11 +13,12 @@ const form = reactive({
 });
 
 const handleSubmit = async () => {
+  console.log('submit login'); // deve aparecer
   error.value = '';
 
   try {
-    await login(form);
-    router.push('/chat');
+    const data = await login(form);          // salva token
+    await router.push('/chat');              // agora o guard passa
   } catch (err) {
     error.value = err.response?.data?.message || 'Erro ao fazer login';
     console.error('Erro no login:', err);
@@ -50,7 +51,7 @@ const handleSubmit = async () => {
               required
               class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
               placeholder="Email"
-              :disabled="loading"
+              :disabled="isLoading"
             />
           </div>
           <div>
@@ -64,7 +65,7 @@ const handleSubmit = async () => {
               required
               class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
               placeholder="Senha"
-              :disabled="loading"
+              :disabled="isLoading"
             />
           </div>
         </div>
@@ -76,10 +77,10 @@ const handleSubmit = async () => {
         <div>
           <button
             type="submit"
-            :disabled="loading"
+            :disabled="isLoading"
             class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
           >
-            {{ loading ? 'Entrando...' : 'Entrar' }}
+            {{ isLoading ? 'Entrando...' : 'Entrar' }}
           </button>
         </div>
 

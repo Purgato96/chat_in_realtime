@@ -12,7 +12,13 @@ export function useWebSocket() {
     const token = localStorage.getItem('chat_token');
     if (!token) return null;
 
+    // Evita múltiplas instâncias
+    if (echoInstance) return echoInstance;
+
     connectionStatus.value = 'connecting';
+
+    // Log do Pusher para debug
+    (Pusher as any).logToConsole = true;
 
     echoInstance = new Echo({
       broadcaster: 'pusher',
@@ -23,18 +29,17 @@ export function useWebSocket() {
       auth: {
         headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'},
       },
+      namespace: '', // evita 'App.Events' como prefixo do nome do evento
     });
 
-    // Acesse a instância Pusher para ouvir mudanças de conexão
-    const pusher = (echoInstance.connector.pusher as Pusher);
+    const pusher = echoInstance.connector.pusher as Pusher;
 
-    // 'connected' dispara quando STATE muda para 'connected'
     pusher.connection.bind('connected', () => {
       connectionStatus.value = 'connected';
     });
-
-    // 'error' para erros genéricos; também útil ouvir 'failed' e 'unavailable'
-    pusher.connection.bind('error', () => {
+    pusher.connection.bind('state_change', (s: any) => console.log('WS state', s));
+    pusher.connection.bind('error', (e: any) => {
+      console.log('WS error', e);
       connectionStatus.value = 'error';
     });
     pusher.connection.bind('failed', () => {
@@ -49,10 +54,10 @@ export function useWebSocket() {
 
   const disconnect = () => {
     if (echoInstance) {
-      // Desvincule handlers de conexão para evitar leaks
-      const pusher = (echoInstance.connector?.pusher as Pusher | undefined);
+      const pusher = echoInstance.connector?.pusher as Pusher | undefined;
       if (pusher) {
         pusher.connection.unbind('connected');
+        pusher.connection.unbind('state_change');
         pusher.connection.unbind('error');
         pusher.connection.unbind('failed');
         pusher.connection.unbind('unavailable');
@@ -69,18 +74,24 @@ export function useWebSocket() {
     onMessageDeleted?: (event: any) => void;
   } = {}) => {
     if (!echoInstance) return null;
-    // Remova o prefixo 'private-' ao usar Echo.private; Echo adiciona automaticamente
+
     const channel = echoInstance.private(`room.${roomSlug}`);
+    channel
+      .subscribed(() => console.log('subscribed room', roomSlug))
+      .error((e: any) => console.log('channel error', e));
+
     if (handlers.onMessageSent) channel.listen('.message.sent', handlers.onMessageSent);
     if (handlers.onMessageUpdated) channel.listen('.message.updated', handlers.onMessageUpdated);
     if (handlers.onMessageDeleted) channel.listen('.message.deleted', handlers.onMessageDeleted);
+
     return channel;
   };
 
   const joinUserChannel = (userId: number, handlers: {
-    onPrivateMessage?: (event: any) => void;
+    onPrivateMessage?: (event: any) => void
   } = {}) => {
     if (!echoInstance) return null;
+
     const channel = echoInstance.private(`user.${userId}`);
     if (handlers.onPrivateMessage) channel.listen('.private-message-sent', handlers.onPrivateMessage);
     return channel;
@@ -90,16 +101,7 @@ export function useWebSocket() {
     if (echoInstance) echoInstance.leave(channelName);
   };
 
-  onUnmounted(() => {
-    disconnect();
-  });
+  onUnmounted(() => disconnect());
 
-  return {
-    connectionStatus,
-    connect,
-    disconnect,
-    joinRoom,
-    joinUserChannel,
-    leaveChannel,
-  };
+  return {connectionStatus, connect, disconnect, joinRoom, joinUserChannel, leaveChannel};
 }

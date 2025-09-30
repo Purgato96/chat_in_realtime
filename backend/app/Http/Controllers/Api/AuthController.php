@@ -14,30 +14,25 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
+use PHPOpenSourceSaver\JWTAuth\Facades\JWTAuth;
+use PHPOpenSourceSaver\JWTAuth\Exceptions\TokenExpiredException;
+use PHPOpenSourceSaver\JWTAuth\Exceptions\TokenInvalidException;
 
 class AuthController extends Controller {
     /**
      * Login e criação de token JWT
      */
     public function login(Request $request) {
-        $request->validate([
-            'email' => 'required|email',
-            'password' => 'required',
-        ]);
-
         $credentials = $request->only('email', 'password');
 
-        if (!$token = auth('api')->attempt($credentials)) {
-            throw ValidationException::withMessages([
-                'email' => ['As credenciais fornecidas estão incorretas.'],
-            ]);
+        if (!$token = JWTAuth::attempt($credentials)) {
+            return response()->json(['error' => 'Credenciais inválidas'], 401);
         }
 
-        $user = auth('api')->user();
-
         return response()->json([
-            'user' => $user,
-            'token' => $token,
+            'access_token' => $token,
+            'token_type' => 'bearer',
+            'expires_in' => config('jwt.ttl') * 60,
         ]);
     }
 
@@ -73,26 +68,47 @@ class AuthController extends Controller {
      * Logout (revoga token JWT atual)
      */
     public function logout() {
-        auth('api')->logout();
-        return response()->json(['message' => 'Token revogado com sucesso.']);
+        try {
+            JWTAuth::invalidate(JWTAuth::getToken());
+            return response()->json(['message' => 'Logout realizado com sucesso']);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Não foi possível deslogar'], 500);
+        }
     }
 
     /**
      * Informações do usuário autenticado
      */
-    public function me() {
-        return response()->json(auth('api')->user());
+    public function me(Request $request) {
+        try {
+            $user = JWTAuth::parseToken()->authenticate();
+            return response()->json($user);
+        } catch (TokenExpiredException $e) {
+            return response()->json(['error' => 'Token expirado'], 401);
+        } catch (TokenInvalidException $e) {
+            return response()->json(['error' => 'Token inválido'], 401);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Token não fornecido'], 401);
+        }
     }
 
     /**
      * Renovar token JWT
      */
     public function refresh() {
-        $newToken = auth('api')->refresh();
-
-        return response()->json([
-            'token' => $newToken,
-            'user' => auth('api')->user(),
-        ]);
+        try {
+            $newToken = JWTAuth::refresh();
+            return response()->json([
+                'access_token' => $newToken,
+                'token_type' => 'bearer',
+                'expires_in' => config('jwt.ttl') * 60,
+            ]);
+        } catch (TokenExpiredException $e) {
+            return response()->json(['error' => 'Token expirou, faça login novamente'], 401);
+        } catch (TokenInvalidException $e) {
+            return response()->json(['error' => 'Token inválido'], 401);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Não foi possível renovar o token'], 401);
+        }
     }
 }

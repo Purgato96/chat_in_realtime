@@ -1,11 +1,5 @@
 <?php
 
-/**
- * Controller REST que gerencia as salas via API.
- * Possui endpoints para listar, criar e gerenciar
- * salas e membros utilizando autenticação Sanctum.
- */
-
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
@@ -13,28 +7,23 @@ use App\Models\Room;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
-class RoomApiController extends Controller
-{
-    /**
-     * Lista todas as salas públicas ou salas do usuário
-     */
-    public function index(Request $request)
-    {
+class RoomApiController extends Controller {
+    public function index(Request $request) {
         $user = $request->user();
 
         $query = Room::with(['creator:id,name', 'users:id,name'])
             ->withCount('users', 'messages');
 
-        // Se o usuário está autenticado, mostra suas salas + públicas
         if ($user) {
-            $query->where(function ($q) use ($user) {
+            $userId = $user->id;
+            $query->where(function ($q) use ($userId) {
                 $q->where('is_private', false)
-                    ->orWhereHas('users', function ($userQuery) use ($user) {
-                        $userQuery->where('user_id', $user->id);
+                    ->orWhere('created_by', $userId)
+                    ->orWhereHas('users', function ($uq) use ($userId) {
+                        $uq->where('user_id', $userId);
                     });
             });
         } else {
-            // Apenas salas públicas para usuários não autenticados
             $query->where('is_private', false);
         }
 
@@ -47,72 +36,58 @@ class RoomApiController extends Controller
                 'last_page' => $rooms->lastPage(),
                 'per_page' => $rooms->perPage(),
                 'total' => $rooms->total(),
-            ]
+            ],
         ]);
     }
 
-    /**
-     * Exibe uma sala específica
-     */
-    public function show(Request $request, Room $room)
-    {
-        $user = $request->user();
-
-        // Verifica acesso à sala
-        if ($room->is_private && (!$user || !$room->users()->where('user_id', $user->id)->exists())) {
+    public function show(Request $request, Room $room) {
+        $userId = (int)optional($request->user())->id;
+        if (!$room->userCanAccess($userId)) {
             return response()->json([
                 'error' => 'Acesso negado',
-                'message' => 'Você não tem permissão para acessar esta sala.'
+                'message' => 'Você não tem permissão para acessar esta sala.',
             ], 403);
         }
 
         $room->load(['creator:id,name', 'users:id,name']);
         $room->loadCount('users', 'messages');
 
-        return response()->json([
-            'data' => $room
-        ]);
+        return response()->json(['data' => $room]);
     }
 
-    /**
-     * Cria uma nova sala
-     */
-    public function store(Request $request)
-    {
+    public function store(Request $request) {
         $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:1000',
             'is_private' => 'boolean',
         ]);
 
+        $userId = $request->user()->id;
+
         $room = Room::create([
             'name' => $request->name,
             'slug' => Str::slug($request->name) . '-' . Str::random(6),
             'description' => $request->description,
             'is_private' => $request->boolean('is_private'),
-            'created_by' => $request->user()->id,
+            'created_by' => $userId,
         ]);
 
-        // Adiciona o criador à sala
-        $room->users()->attach($request->user()->id);
+        // Garante criador na pivot com joined_at
+        $room->users()->syncWithoutDetaching([$userId => ['joined_at' => now()]]);
 
         $room->load(['creator:id,name', 'users:id,name']);
 
         return response()->json([
             'data' => $room,
-            'message' => 'Sala criada com sucesso.'
+            'message' => 'Sala criada com sucesso.',
         ], 201);
     }
 
-    /**
-     * Atualiza uma sala (apenas o criador)
-     */
-    public function update(Request $request, Room $room)
-    {
-        if ($room->created_by !== $request->user()->id) {
+    public function update(Request $request, Room $room) {
+        if ((int)$room->created_by !== (int)$request->user()->id) {
             return response()->json([
                 'error' => 'Acesso negado',
-                'message' => 'Apenas o criador pode editar esta sala.'
+                'message' => 'Apenas o criador pode editar esta sala.',
             ], 403);
         }
 
@@ -128,91 +103,94 @@ class RoomApiController extends Controller
 
         return response()->json([
             'data' => $room,
-            'message' => 'Sala atualizada com sucesso.'
+            'message' => 'Sala atualizada com sucesso.',
         ]);
     }
 
-    /**
-     * Remove uma sala (apenas o criador)
-     */
-    public function destroy(Request $request, Room $room)
-    {
-        if ($room->created_by !== $request->user()->id) {
+    public function destroy(Request $request, Room $room) {
+        if ((int)$room->created_by !== (int)$request->user()->id) {
             return response()->json([
                 'error' => 'Acesso negado',
-                'message' => 'Apenas o criador pode deletar esta sala.'
+                'message' => 'Apenas o criador pode deletar esta sala.',
             ], 403);
         }
 
         $room->delete();
 
-        return response()->json([
-            'message' => 'Sala deletada com sucesso.'
-        ]);
+        return response()->json(['message' => 'Sala deletada com sucesso.']);
     }
 
-    /**
-     * Entrar em uma sala
-     */
-    public function join(Request $request, Room $room)
-{
-    $user = $request->user();
+    public function join(Request $request, Room $room) {
+        $userId = $request->user()->id;
 
-    // Se a sala é privada, só entra quem for criador ou já estiver na pivot
-    if ($room->is_private && $room->created_by !== $user->id) {
-        if (!$room->users()->where('user_id', $user->id)->exists()) {
+        if (!$room->userCanAccess($userId)) {
             return response()->json([
                 'error' => 'Acesso negado',
-                'message' => 'Esta sala é privada.'
+                'message' => 'Esta sala é privada.',
             ], 403);
         }
-    }
 
-    if (!$room->users()->where('user_id', $user->id)->exists()) {
-        $room->users()->attach($user->id, ['joined_at' => now()]);
-    }
-
-    return response()->json([
-        'message' => 'Você entrou na sala com sucesso.',
-        'data' => [
-            'room_id' => $room->id,
-            'user_id' => $user->id,
-            'joined_at' => now()->toISOString()
-        ]
-    ]);
-}
-
-    /**
-     * Sair de uma sala
-     */
-    public function leave(Request $request, Room $room)
-    {
-        $user = $request->user();
-
-        $room->users()->detach($user->id);
+        if (!$room->users()->where('user_id', $userId)->exists()) {
+            $room->users()->attach($userId, ['joined_at' => now()]);
+        }
 
         return response()->json([
-            'message' => 'Você saiu da sala com sucesso.'
+            'message' => 'Você entrou na sala com sucesso.',
+            'data' => [
+                'room_id' => $room->id,
+                'user_id' => $userId,
+                'joined_at' => now()->toISOString(),
+            ],
         ]);
     }
 
-    /**
-     * Lista membros de uma sala
-     */
-    public function members(Request $request, Room $room)
-    {
-        $user = $request->user();
-
-        // Verifica acesso à sala
-        if ($room->is_private && (!$user || !$room->users()->where('user_id', $user->id)->exists())) {
+    public function addMember(Request $request, Room $room) {
+        // Apenas o criador pode adicionar
+        if ((int)$room->created_by !== (int)$request->user()->id) {
             return response()->json([
                 'error' => 'Acesso negado',
-                'message' => 'Você não tem permissão para ver os membros desta sala.'
+                'message' => 'Apenas o criador pode adicionar membros.'
+            ], 403);
+        }
+
+        $data = $request->validate([
+            'user_id' => 'required|integer|exists:users,id'
+        ]);
+
+        if ($room->users()->where('user_id', $data['user_id'])->exists()) {
+            return response()->json([
+                'message' => 'Usuário já é membro da sala.'
+            ], 200);
+        }
+
+        $room->users()->attach($data['user_id'], ['joined_at' => now()]);
+
+        return response()->json([
+            'message' => 'Membro adicionado com sucesso.'
+        ], 201);
+    }
+
+    public function leave(Request $request, Room $room) {
+        $userId = $request->user()->id;
+
+        // Se quiser evitar que o criador saia, bloqueie aqui
+        $room->users()->detach($userId);
+
+        return response()->json(['message' => 'Você saiu da sala com sucesso.']);
+    }
+
+    public function members(Request $request, Room $room) {
+        $userId = (int)optional($request->user())->id;
+
+        if (!$room->userCanAccess($userId)) {
+            return response()->json([
+                'error' => 'Acesso negado',
+                'message' => 'Você não tem permissão para ver os membros desta sala.',
             ], 403);
         }
 
         $members = $room->users()
-            ->select('users.id', 'users.name', 'room_user.joined_at')
+            ->select('users.id', 'users.name', 'users.email', 'room_user.joined_at')
             ->paginate(50);
 
         return response()->json([
@@ -222,28 +200,26 @@ class RoomApiController extends Controller
                 'last_page' => $members->lastPage(),
                 'per_page' => $members->perPage(),
                 'total' => $members->total(),
-            ]
+            ],
         ]);
     }
-    /**
-     * Lista todas as salas privadas do usuário autenticado
-     */
-    public function myPrivateRooms(Request $request)
-    {
-        $user = $request->user();
+
+    public function myPrivateRooms(Request $request) {
+        $userId = $request->user()->id;
 
         $rooms = Room::where('is_private', true)
-            ->whereHas('users', function($q) use ($user) {
-                $q->where('user_id', $user->id);
+            ->where(function ($q) use ($userId) {
+                $q->where('created_by', $userId)
+                    ->orWhereHas('users', function ($uq) use ($userId) {
+                        $uq->where('user_id', $userId);
+                    });
             })
-            ->with(['users' => function($q) use ($user) {
-                $q->where('user_id', '!=', $user->id)
+            ->with(['users' => function ($q) use ($userId) {
+                $q->where('users.id', '!=', $userId)
                     ->select('users.id', 'users.name', 'users.email');
             }])
             ->get();
 
-        return response()->json([
-            'data' => $rooms
-        ]);
+        return response()->json(['data' => $rooms]);
     }
 }

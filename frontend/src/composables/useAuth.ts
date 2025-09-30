@@ -1,82 +1,75 @@
-import { ref, computed } from 'vue';
-import { AuthService } from '@/services';
+import {ref, computed} from 'vue';
+import {authService as AuthService} from '@/services/AuthService';
 
 const user = ref(null);
-const loading = ref(false);
+const token = ref(null);
+const isLoading = ref(false);
 
 export function useAuth() {
-  const isAuthenticated = computed(() => !!user.value);
+  const isAuthenticated = computed(() => AuthService.isAuthenticated());
+
+  const loadUser = async () => {
+    if (!AuthService.isAuthenticated()) {
+      user.value = null;
+      return;
+    }
+    isLoading.value = true;
+    try {
+      const userData = await AuthService.me();
+      user.value = userData;
+    } catch (error) {
+      console.error('Erro ao carregar usuário:', error);
+      user.value = null;
+    } finally {
+      isLoading.value = false;
+    }
+  };
 
   const login = async (credentials) => {
-    loading.value = true;
+    isLoading.value = true;
     try {
       const data = await AuthService.login(credentials);
-      user.value = data.user;
+      token.value = data.access_token ?? null;
+      // busca perfil para popular user
+      try {
+        const me = await AuthService.me();
+        user.value = me;
+      } catch {
+        user.value = null;
+      }
       return data;
     } finally {
-      loading.value = false;
+      isLoading.value = false;
     }
   };
+
 
   const register = async (payload) => {
-    loading.value = true;
+    isLoading.value = true;
     try {
       const data = await AuthService.register(payload);
-      user.value = data.user;
+      if (data?.user) user.value = data.user;
+      if (data?.access_token) token.value = data.access_token;
       return data;
     } finally {
-      loading.value = false;
+      isLoading.value = false;
     }
   };
 
-  const logout = async () => {
-    loading.value = true;
-    try {
-      await AuthService.logout();
-    } catch (error) {
-      // Ignora erro 401, que indica token expirado ou inválido
-      if (error.response?.status !== 401) {
-        throw error;
-      }
-    } finally {
-      user.value = null;
-      localStorage.removeItem('chat_token');
-      loading.value = false;
-    }
-  };
-
-  const fetchUser = async () => {
-    loading.value = true;
-    try {
-      user.value = await AuthService.me();
-      return user.value;
-    } catch (error) {
-      user.value = null;
-      throw error;
-    } finally {
-      loading.value = false;
-    }
-  };
-
-  const autoLogin = async (email, accountId) => {
-    loading.value = true;
-    try {
-      const data = await AuthService.autoLogin(email, accountId);
-      user.value = data.data.user;
-      return data;
-    } finally {
-      loading.value = false;
-    }
+  const logout = () => {
+    AuthService.logout();
+    user.value = null;
+    token.value = null;
   };
 
   return {
-    user,
-    loading,
+    user: computed(() => user.value),
+    token: computed(() => token.value),
     isAuthenticated,
+    isLoading: computed(() => isLoading.value),
+    loadUser,
     login,
     register,
     logout,
-    fetchUser,
-    autoLogin,
   };
 }

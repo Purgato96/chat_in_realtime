@@ -11,7 +11,8 @@ use Illuminate\Support\Str;
 
 class ChatAutoLoginController extends Controller {
     /**
-     * Autenticação automática para chat via parâmetros usando JWT
+     * Autenticação automática via parâmetros (JWT)
+     * Ex.: POST /api/v1/auth/auto-login { email, account_id }
      */
     public function autoLogin(Request $request) {
         $request->validate([
@@ -19,10 +20,9 @@ class ChatAutoLoginController extends Controller {
             'account_id' => 'required|string'
         ]);
 
-        $email = $request->email;
-        $accountId = $request->account_id;
+        $email = $request->string('email');
+        $accountId = $request->string('account_id');
 
-        // Validação customizada do email placeholder
         if ($email === '{{Email}}') {
             return response()->json([
                 'success' => false,
@@ -31,34 +31,32 @@ class ChatAutoLoginController extends Controller {
         }
 
         try {
-            // Cria ou busca usuário
             $user = User::firstOrCreate(
                 ['email' => $email],
                 [
-                    'name' => $email,
+                    'name' => (string)$email,
                     'password' => bcrypt(Str::random(16)),
-                    'account_id' => $accountId
+                    'account_id' => (string)$accountId
                 ]
             );
 
-            // Gera token JWT (remove Auth::login e createToken do Sanctum)
+            // JWT token
             $token = auth('api')->login($user);
 
-            // Cria ou busca sala
+            // Slug determinístico por account_id
+            $slug = 'sala-' . (string)$accountId;
             $room = Room::firstOrCreate(
-                ['slug' => 'sala-' . $accountId],
+                ['slug' => $slug],
                 [
-                    'name' => 'Espaço #' . $accountId,
-                    'description' => 'Sala automática para account_id ' . $accountId,
-                    'is_private' => true,
+                    'name' => 'Espaço #' . (string)$accountId,
+                    'description' => 'Sala automática para account_id ' . (string)$accountId,
+                    'is_private' => false,
                     'created_by' => $user->id,
                 ]
             );
 
             // Vincula usuário à sala
-            if (!$room->users()->where('user_id', $user->id)->exists()) {
-                $room->users()->attach($user->id, ['joined_at' => now()]);
-            }
+            $room->users()->syncWithoutDetaching([$user->id => ['joined_at' => now()]]);
 
             return response()->json([
                 'success' => true,
@@ -76,11 +74,10 @@ class ChatAutoLoginController extends Controller {
                         'name' => $room->name,
                         'description' => $room->description
                     ],
-                    'account_id' => $accountId,
+                    'account_id' => (string)$accountId,
                     'redirect_to' => '/chat/room/' . $room->slug
                 ]
             ]);
-
         } catch (Exception $e) {
             return response()->json([
                 'success' => false,

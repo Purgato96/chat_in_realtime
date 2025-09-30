@@ -2,6 +2,7 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import router from '@/router';
 import { initializeTheme } from '@/composables/useAppearance';
+import { useAuth } from '@/composables/useAuth';
 
 // CSS principal
 import '@/assets/main.css';
@@ -11,6 +12,9 @@ initializeTheme();
 
 const app = createApp(App);
 
-app.use(router);
-
-app.mount('#app');
+// Carrega usuário ao iniciar a app
+const { loadUser } = useAuth();
+loadUser().then(() => {
+  app.use(router);
+  app.mount('#app');
+});

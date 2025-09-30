@@ -12,23 +12,12 @@ import ChatLayout from '@/layouts/ChatLayout.vue';
 const route = useRoute();
 const router = useRouter();
 
-// Composables
 const { user } = useAuth();
 const { currentRoom, fetchRoomBySlug } = useRooms();
 const { messages, fetchMessages, sendMessage: sendRoomMessage, addMessage, removeMessage, updateMessageInList } = useMessages();
-const {
-  conversations,
-  currentConversation,
-  messages: privateMessages,
-  fetchConversations,
-  startConversation,
-  openConversation,
-  sendMessage: sendPrivateMessage,
-  addMessage: addPrivateMessage
-} = usePrivateConversations();
+const { conversations, currentConversation, messages: privateMessages, fetchConversations, startConversation, openConversation, sendMessage: sendPrivateMessage, addMessage: addPrivateMessage } = usePrivateConversations();
 const { connectionStatus, connect, joinRoom, joinUserChannel, disconnect } = useWebSocket();
 
-// Estado local
 const messageInput = ref(null);
 const messagesContainer = ref(null);
 const newMessage = ref('');
@@ -45,16 +34,11 @@ const mentionStartIndex = ref(-1);
 const roomUsers = ref([]);
 const loading = ref(true);
 
-// Computed
 const roomSlug = computed(() => route.params.slug);
 const canManageUsers = computed(() => currentRoom.value?.created_by === user.value?.id);
 
 const getPlaceholderText = computed(() =>
-  activeTab.value === 'public'
-    ? 'Digite @ para mencionar usuários...'
-    : currentConversation.value
-    ? 'Digite sua mensagem...'
-    : 'Selecione uma conversa'
+  activeTab.value === 'public' ? 'Digite @ para mencionar usuários...' : currentConversation.value ? 'Digite sua mensagem...' : 'Selecione uma conversa'
 );
 
 const btnActivePublic = computed(() =>
@@ -62,7 +46,6 @@ const btnActivePublic = computed(() =>
     ? 'px-3 py-2 rounded text-sm font-medium bg-blue-500 text-white'
     : 'px-3 py-2 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300'
 );
-
 const btnActivePriv = computed(() =>
   activeTab.value === 'private'
     ? 'px-3 py-2 rounded text-sm font-medium bg-blue-500 text-white'
@@ -72,28 +55,18 @@ const btnActivePriv = computed(() =>
 const msgSent = 'self-end bg-blue-500 text-white';
 const msgRecv = 'self-start bg-gray-100 text-gray-900';
 
-// Funções
 async function loadRoomData() {
   loading.value = true;
   try {
-    // Carrega dados da sala
-    await fetchRoomBySlug(roomSlug.value);
-
-    // Carrega mensagens da sala
+    await fetchRoomBySlug(roomSlug.value);      // valida acesso
     await fetchMessages(roomSlug.value);
-
-    // Carrega conversas privadas
     await fetchConversations();
-
-    // Carrega usuários da sala
     await loadRoomUsers();
-
-    // Conecta WebSocket
-    setupWebSocket();
-
+    setupWebSocket();                           // conecta só após sucesso
   } catch (error) {
     console.error('Erro ao carregar sala:', error);
     router.push('/chat');
+    return;
   } finally {
     loading.value = false;
   }
@@ -111,45 +84,38 @@ async function loadRoomUsers() {
 
 function setupWebSocket() {
   if (!user.value) return;
-
   const token = localStorage.getItem('chat_token');
   if (!token) return;
+  if (connectionStatus.value === 'connected') return;
 
-  // Conecta ao WebSocket
   const echo = connect(token);
   if (!echo) return;
 
-  // Join no canal da sala
-  joinRoom(roomSlug.value, {
-    onMessageSent: (event) => {
-      if (!messages.value.some(m => m.id === event.message.id)) {
-        addMessage(event.message);
-        if (activeTab.value === 'public') {
-          scrollToBottom();
-        }
-      }
-    },
-    onMessageUpdated: (event) => {
-      updateMessageInList(event.message);
-    },
-    onMessageDeleted: (event) => {
-      removeMessage(event.message.id);
+ joinRoom(roomSlug.value, {
+  onMessageSent: (event) => {
+    if (!messages.value.some(m => m.id === event.message.id)) {
+      addMessage(event.message);
+      if (activeTab.value === 'public') scrollToBottom();
     }
-  });
+  },
+  onMessageUpdated: (event) => {
+    updateMessageInList(event.message);
+  },
+  onMessageDeleted: (event) => {
+    removeMessage(event.message.id);
+  }
+});
 
-  // Join no canal do usuário (para mensagens privadas)
+
   joinUserChannel(user.value.id, {
-    onPrivateMessage: (event) => {
-      if (activeTab.value === 'private' &&
-          currentConversation.value?.id === event.message.conversation_id) {
+    onPrivateMessage: async (event) => {
+      if (activeTab.value === 'private' && currentConversation.value?.id === event.message.conversation_id) {
         addPrivateMessage(event.message);
         scrollToBottom();
       }
-      fetchConversations(); // Refresh da lista
+      await fetchConversations();
     }
   });
-
-  connectionStatus.value = 'connected';
 }
 
 async function selectPrivateConversation(conversation) {
@@ -168,29 +134,21 @@ function switchToPublic() {
 
 function handleInput() {
   if (activeTab.value !== 'public') return;
-
   const input = messageInput.value;
   if (!input) return;
 
   const val = input.value;
   const pos = input.selectionStart;
   let start = -1;
-
   for (let i = pos - 1; i >= 0; i--) {
-    if (val[i] === '@') {
-      start = i;
-      break;
-    }
+    if (val[i] === '@') { start = i; break; }
     if (val[i] === ' ') break;
   }
-
   if (start !== -1) {
     mentionStartIndex.value = start;
     const term = val.substring(start + 1, pos).toLowerCase();
     mentionUsers.value = roomUsers.value.filter(u =>
-      u.name.toLowerCase().includes(term) ||
-      u.email.toLowerCase().includes(term)
-    );
+      u.name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term));
     showMentionDropdown.value = mentionUsers.value.length > 0;
     selectedMentionIndex.value = 0;
   } else {
@@ -201,22 +159,10 @@ function handleInput() {
 
 function handleKeydown(e) {
   if (!showMentionDropdown.value) return;
-
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    selectedMentionIndex.value = Math.min(
-      selectedMentionIndex.value + 1,
-      mentionUsers.value.length - 1
-    );
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    selectedMentionIndex.value = Math.max(selectedMentionIndex.value - 1, 0);
-  } else if (e.key === 'Enter' && showMentionDropdown.value) {
-    e.preventDefault();
-    selectMention(mentionUsers.value[selectedMentionIndex.value]);
-  } else if (e.key === 'Escape') {
-    showMentionDropdown.value = false;
-  }
+  if (e.key === 'ArrowDown') { e.preventDefault(); selectedMentionIndex.value = Math.min(selectedMentionIndex.value + 1, mentionUsers.value.length - 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); selectedMentionIndex.value = Math.max(selectedMentionIndex.value - 1, 0); }
+  else if (e.key === 'Enter') { e.preventDefault(); selectMention(mentionUsers.value[selectedMentionIndex.value]); }
+  else if (e.key === 'Escape') { showMentionDropdown.value = false; }
 }
 
 async function selectMention(u) {
@@ -262,8 +208,8 @@ async function sendMessage() {
     } else if (currentConversation.value) {
       await sendPrivateMessage(currentConversation.value.id, newMessage.value);
     }
-
     newMessage.value = '';
+    // Não adicionar localmente; o evento cuidará da inserção
     scrollToBottom();
   } catch (error) {
     console.error('Erro ao enviar mensagem:', error);
@@ -275,7 +221,6 @@ async function sendMessage() {
 
 async function leaveRoom() {
   if (!confirm('Tem certeza que deseja sair desta sala?')) return;
-
   try {
     await RoomService.leave(roomSlug.value);
     router.push('/chat');
@@ -285,37 +230,24 @@ async function leaveRoom() {
 }
 
 function formatTime(timestamp) {
-  return new Date(timestamp).toLocaleTimeString('pt-BR', {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  return new Date(timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
-
 function formatDate(timestamp) {
-  return new Date(timestamp).toLocaleDateString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  });
+  return new Date(timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-// Watchers
 watch(() => route.params.slug, async (newSlug) => {
-  if (newSlug) {
-    activeTab.value = 'public';
-    await loadRoomData();
-  }
+  if (!newSlug) return;
+  activeTab.value = 'public';
+  await loadRoomData();
 });
 
-// Lifecycle
 onMounted(async () => {
   await loadRoomData();
   scrollToBottom();
 });
 
-onUnmounted(() => {
-  disconnect();
-});
+onUnmounted(() => { disconnect(); });
 </script>
 
 <template>

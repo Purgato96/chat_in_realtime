@@ -1,11 +1,5 @@
 <?php
 
-/**
- * Controlador da API responsável pelas
- * operações de mensagens nas salas de chat.
- * Inclui listagem, envio e busca de mensagens.
- */
-
 namespace App\Http\Controllers\Api;
 
 use App\Events\MessageSent;
@@ -14,17 +8,15 @@ use App\Models\Message;
 use App\Models\Room;
 use Illuminate\Http\Request;
 
-class MessageApiController extends Controller
-{
+class MessageApiController extends Controller {
     /**
      * Lista mensagens de uma sala
      */
-    public function index(Request $request, Room $room)
-    {
-        $user = $request->user();
+    public function index(Request $request, Room $room) {
+        $userId = (int)optional($request->user())->id;
 
-        // Verifica acesso à sala
-        if ($room->is_private && (!$user || !$room->users()->where('user_id', $user->id)->exists())) {
+        // Usa regra centralizada
+        if (!$room->userCanAccess($userId)) {
             return response()->json([
                 'error' => 'Acesso negado',
                 'message' => 'Você não tem permissão para ver as mensagens desta sala.'
@@ -41,19 +33,17 @@ class MessageApiController extends Controller
             ->with('user:id,name')
             ->latest();
 
-        // Paginação baseada em cursor para melhor performance
         if ($request->has('before')) {
-            $query->where('id', '<', $request->before);
+            $query->where('id', '<', $request->integer('before'));
         }
 
         if ($request->has('after')) {
-            $query->where('id', '>', $request->after);
+            $query->where('id', '>', $request->integer('after'));
         }
 
-        $perPage = $request->get('per_page', 50);
+        $perPage = (int)$request->get('per_page', 50);
         $messages = $query->limit($perPage)->get();
 
-        // Se não há filtro 'after', inverte a ordem para mostrar mais recentes primeiro
         if (!$request->has('after')) {
             $messages = $messages->reverse()->values();
         }
@@ -72,13 +62,11 @@ class MessageApiController extends Controller
     /**
      * Exibe uma mensagem específica
      */
-    public function show(Request $request, Message $message)
-    {
-        $user = $request->user();
+    public function show(Request $request, Message $message) {
         $room = $message->room;
+        $userId = (int)optional($request->user())->id;
 
-        // Verifica acesso à sala
-        if ($room->is_private && (!$user || !$room->users()->where('user_id', $user->id)->exists())) {
+        if (!$room->userCanAccess($userId)) {
             return response()->json([
                 'error' => 'Acesso negado',
                 'message' => 'Você não tem permissão para ver esta mensagem.'
@@ -95,15 +83,14 @@ class MessageApiController extends Controller
     /**
      * Envia uma nova mensagem
      */
-    public function store(Request $request, Room $room)
-    {
-        $user = $request->user();
+    public function store(Request $request, Room $room) {
+        $userId = $request->user()->id;
 
-        // Verifica acesso à sala
-        if (!$room->users()->where('user_id', $user->id)->exists()) {
+        // Usa regra centralizada: criador OU membro podem enviar
+        if (!$room->userCanAccess($userId)) {
             return response()->json([
                 'error' => 'Acesso negado',
-                'message' => 'Você precisa estar na sala para enviar mensagens.'
+                'message' => 'Você não tem permissão para enviar mensagens nesta sala.'
             ], 403);
         }
 
@@ -113,12 +100,14 @@ class MessageApiController extends Controller
 
         $message = Message::create([
             'content' => $request->input('content'),
-            'user_id' => $user->id,
+            'user_id' => $userId,
             'room_id' => $room->id,
         ]);
 
-        $message->load('user:id,name');
+        // Carrega relações essenciais para o payload e canal
+        $message->load(['user:id,name', 'room:id,slug']);
 
+        // Dispara broadcast para os outros clientes
         broadcast(new MessageSent($message))->toOthers();
 
         return response()->json([
@@ -130,9 +119,8 @@ class MessageApiController extends Controller
     /**
      * Atualiza uma mensagem (apenas o autor)
      */
-    public function update(Request $request, Message $message)
-    {
-        if ($message->user_id !== $request->user()->id) {
+    public function update(Request $request, Message $message) {
+        if ((int)$message->user_id !== (int)$request->user()->id) {
             return response()->json([
                 'error' => 'Acesso negado',
                 'message' => 'Você só pode editar suas próprias mensagens.'
@@ -144,11 +132,14 @@ class MessageApiController extends Controller
         ]);
 
         $message->update([
-            'content' => $request->content,
+            'content' => $request->string('content'),
             'edited_at' => now(),
         ]);
 
         $message->load('user:id,name');
+
+        // Opcional: emitir um evento de mensagem atualizada
+        // broadcast(new MessageUpdated($message))->toOthers();
 
         return response()->json([
             'data' => $message,
@@ -159,9 +150,8 @@ class MessageApiController extends Controller
     /**
      * Remove uma mensagem (apenas o autor)
      */
-    public function destroy(Request $request, Message $message)
-    {
-        if ($message->user_id !== $request->user()->id) {
+    public function destroy(Request $request, Message $message) {
+        if ((int)$message->user_id !== (int)$request->user()->id) {
             return response()->json([
                 'error' => 'Acesso negado',
                 'message' => 'Você só pode deletar suas próprias mensagens.'
@@ -169,6 +159,9 @@ class MessageApiController extends Controller
         }
 
         $message->delete();
+
+        // Opcional: emitir evento de exclusão
+        // broadcast(new MessageDeleted($message->id, $message->room_id))->toOthers();
 
         return response()->json([
             'message' => 'Mensagem deletada com sucesso.'
@@ -178,12 +171,10 @@ class MessageApiController extends Controller
     /**
      * Busca mensagens por conteúdo
      */
-    public function search(Request $request, Room $room)
-    {
-        $user = $request->user();
+    public function search(Request $request, Room $room) {
+        $userId = (int)optional($request->user())->id;
 
-        // Verifica acesso à sala
-        if ($room->is_private && (!$user || !$room->users()->where('user_id', $user->id)->exists())) {
+        if (!$room->userCanAccess($userId)) {
             return response()->json([
                 'error' => 'Acesso negado',
                 'message' => 'Você não tem permissão para buscar nesta sala.'
@@ -200,7 +191,7 @@ class MessageApiController extends Controller
             ->where('content', 'LIKE', '%' . $request->q . '%')
             ->latest();
 
-        $perPage = $request->get('per_page', 20);
+        $perPage = (int)$request->get('per_page', 20);
         $messages = $query->paginate($perPage);
 
         return response()->json([
